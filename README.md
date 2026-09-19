@@ -211,22 +211,86 @@ Errors return `{"error": "<stable_code>", "message": "<human text>"}` — match 
 
 Unauthenticated. `200` with `{"status":"ok","db":"ok","ml":"ok","model":"…","dimensions":512,"indexedAssets":48213}`.
 
-### Send a 1440px q80 JPEG
+### Preparing the image: best practice
 
-Immich does not embed your original file — it embeds the **preview derivative**,
-by default a JPEG with a long edge of 1440px at quality 80 ([`handleEncodeClip`][encode]
-selects [`AssetFileType.Preview`][previewsel]; [defaults][previewcfg]). Every
-vector in `smart_search` is an embedding of *that*. Submitting the same shape
-makes your query directly comparable:
+One command does everything that matters:
 
 ```bash
 magick input.jpg -auto-orient -resize 1440x1440\> -quality 80 query.jpg
 ```
 
-Anything else is normalized server-side (`PREVIEW_PARITY=true`, the default). An
-input that is already JPEG with a long edge ≤ 1440 is passed through **untouched**
-— re-encoding would add a second generation of JPEG loss for nothing. So sending
-the expected shape is both the most accurate and the cheapest path.
+That is: bake in EXIF rotation, scale the **long** edge down to 1440 preserving
+aspect ratio, never upscale (the `\>` does that), re-encode JPEG at quality 80.
+
+#### What CLIP actually looks at
+
+Understanding this makes the rules obvious. Immich's transform
+([`OpenClipVisualEncoder.transform`][cliptransform]) does two things to whatever
+it is given:
+
+1. [`resize_pil`][transforms] scales the **shortest** edge to 224, keeping aspect
+   ratio.
+2. [`crop_pil`][transforms] takes a **centre crop of 224×224**.
+
+So the model only ever sees the centre square of your photo. On a 3:2 landscape
+shot, the left and right sixths are discarded before the model sees anything. On
+a panorama, almost everything is.
+
+That is also true of the assets already in your library, which is the point: your
+query is only comparable if its centre square frames the same thing theirs does.
+
+#### Rules
+
+**Do**
+
+- **Apply EXIF orientation** into the pixels. CLIP is not rotation-invariant, and
+  Immich's preview generator rotates before embedding. This is the one step the
+  service cannot do for you — an unrotated portrait photo scores badly against
+  its own upright twin.
+- **Preserve aspect ratio.** It decides what survives the centre crop.
+- **Resize the long edge to 1440**, matching Immich's preview default, so both
+  sides of the comparison went through the same two resampling steps.
+- **Flatten transparency** onto a solid colour first. Alpha is discarded, and a
+  transparent background can land as black.
+- **Leave the colour profile alone.** Converting between sRGB and Display P3
+  shifts pixel values, and nothing downstream reads the profile to compensate.
+
+**Don't**
+
+- **Don't crop, pad or letterbox.** Padding pushes real content out of the centre
+  crop and fills it with bars. A letterboxed 16:9 frame can embed closer to other
+  letterboxed images than to the same scene uncropped.
+- **Don't upscale.** Immich never does, so you would be comparing an interpolated
+  image against a real one.
+- **Don't square it yourself.** Immich's own centre crop is the reference; doing
+  your own first crops twice.
+- **Don't re-encode an already-conforming JPEG.** A second generation of JPEG
+  loss moves distances for no gain.
+
+#### What the service does for you
+
+With `PREVIEW_PARITY=true` (the default) anything non-conforming is resized and
+re-encoded server-side, and a JPEG already within 1440px is passed through
+untouched. `query.normalized` in the response tells you which happened.
+
+It does **not** rotate by EXIF, decode HEIC or RAW, or flatten transparency. So
+the one thing worth doing yourself is `-auto-orient`; the rest is a convenience.
+
+#### Why 1440 and quality 80
+
+Immich does not embed your original file — it embeds the **preview derivative**
+([`handleEncodeClip`][encode] selects [`AssetFileType.Preview`][previewsel];
+[defaults][previewcfg]). Every vector in `smart_search` is an embedding of a
+1440px, quality-80 JPEG. Sending the same shape is both the most accurate option
+and the cheapest, since the server then has nothing to do.
+
+#### Where this breaks down
+
+Panoramas, very wide crops and images with the subject far off-centre are all
+weak cases, because the centre crop throws away the part that distinguishes them.
+Two unrelated panoramas of the same coastline can sit closer together than a
+panorama and its own tighter crop. Calibrate with `?all=true` before trusting
+`duplicate` on that kind of material.
 
 ## Talking to Immich's ML container
 
@@ -445,6 +509,8 @@ a symptom → where-to-look table. Worth running *before* an upgrade too.
 [clipcfg]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/dtos/config.dto.ts#L627-L634
 [mlport]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/config.py#L87
 [mlpredict]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/main.py#L166-L181
+[cliptransform]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/clip/visual.py#L71-L76
+[transforms]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/transforms.py#L14-L27
 [modelttl]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/config.py#L58
 [probes]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/database.repository.ts#L118-L119
 [usertbl]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/schema/tables/user.table.ts#L20

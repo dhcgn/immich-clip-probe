@@ -270,9 +270,18 @@ quality 80, P3 colorspace.
 
 So every vector in `smart_search` is the embedding of a 1440px q80 JPEG. Feed the
 ML container a 48-megapixel original and you get the embedding of a different
-rendering of the same scene. CLIP's own preprocessing resizes to 224×224 anyway,
-so the discrepancy is small — but it is *systematic*, and it lands right in the
-range where a `0.01` threshold decides yes or no.
+rendering of the same scene. CLIP's own preprocessing shrinks everything a long
+way further anyway, so the discrepancy is small — but it is *systematic*, and it
+lands right in the range where a `0.01` threshold decides yes or no.
+
+That preprocessing is worth stating precisely, because it constrains what a
+client should send. [`OpenClipVisualEncoder.transform`][cliptransform] calls
+[`resize_pil`][transforms] to scale the **shortest** edge to 224 preserving
+aspect ratio, then [`crop_pil`][transforms] to take a **centre crop of 224×224**.
+The model therefore only ever sees the centre square. Aspect ratio decides what
+survives that crop, which is why the README tells clients to preserve it and
+never to pad or letterbox: those change the framing rather than just the
+resolution, and framing is the one thing the crop is sensitive to.
 
 Hence two things:
 
@@ -567,6 +576,7 @@ fixtures framework, no mocks package.
 | Smart search uses the same operator | [`search.repository.ts:326-327`][searchrepo] |
 | `vchordrq.probes = 1` | [`database.repository.ts:118-119`][probes] |
 | Immich embeds the **preview**, not the original | [`smart-info.service.ts:88-104`][encode] → [`asset-job.repository.ts:223-230`][previewsel] |
+| CLIP sees a 224×224 **centre crop**, shortest edge first | [`clip/visual.py:71-76`][cliptransform] → [`transforms.py:14-27`][transforms] |
 | Preview defaults: JPEG, 1440, q80, P3 | [`config.dto.ts:702-707`][previewcfg] |
 | CLIP model default + `maxDistance: 0.01` | [`config.dto.ts:627-634`][clipcfg] |
 | `AssetVisibility`: `hidden` = Live/Motion Photo video part | [`enum.ts:1178-1187`][visibility] |
@@ -583,6 +593,8 @@ fixtures framework, no mocks package.
 [getformdata]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/machine-learning.repository.ts#L228
 [serialize]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/transforms.py#L72-L76
 [clipvisual]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/clip/visual.py#L29-L32
+[cliptransform]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/clip/visual.py#L71-L76
+[transforms]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/transforms.py#L14-L27
 [mlport]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/config.py#L87
 [mlconfig]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/config.py
 [modelttl]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/config.py#L58

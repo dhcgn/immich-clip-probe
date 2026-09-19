@@ -29,7 +29,10 @@ info:
     - **long edge** 1440px (smaller is fine — images are never upscaled)
     - **quality** 80
     - **EXIF orientation already applied** (rotate the pixels; CLIP is not
-      rotation-invariant)
+      rotation-invariant). This is the one step the service does not do for you.
+    - **aspect ratio preserved** — do not crop, pad or letterbox. CLIP scales the
+      shortest edge to 224 and then takes a 224×224 **centre crop**, so it only
+      ever sees the middle of the frame; padding pushes real content out of it.
 
     Anything else is normalized server-side when `PREVIEW_PARITY=true` (the
     default). An input that is already JPEG with a long edge of 1440px or less is
