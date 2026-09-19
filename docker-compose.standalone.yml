@@ -1,0 +1,114 @@
+#
+# Option B — clip-probe as its own stack, leaving Immich's compose file untouched.
+#
+# It joins Immich's existing network as an external network. Nothing about the
+# Immich stack changes; `docker compose up -d` here, `down` here, and Immich never
+# notices.
+#
+# Prerequisite: Immich must already be running, because the network is created by
+# its project. Confirm the name:
+#
+#   docker network ls | grep immich
+#
+# The stock compose file starts with `name: immich`, so the network is
+# `immich_default`. If you renamed the project, adjust `external.name` below.
+#
+# NOTE ON "STANDALONE": there is no deployment that avoids Immich's database.
+# The embeddings live in `smart_search`, so that connection is the one hard
+# requirement. What this file avoids is *editing Immich's compose file*, not
+# depending on Immich. See the bottom of this file for an own-ML variant.
+#
+
+name: immich-clip-probe
+
+services:
+  clip-probe:
+    container_name: immich_clip_probe
+    image: ghcr.io/dhcgn/immich-clip-probe:latest
+    restart: always
+    environment:
+      # This service's own token. Not an Immich API key.
+      #   openssl rand -hex 32
+      API_TOKEN: ${CLIP_PROBE_TOKEN:?set CLIP_PROBE_TOKEN in .env}
+
+      # Which Immich user's library to search. Comma-separated UUIDs.
+      #   SELECT id, email FROM "user";
+      OWNER_IDS: ${CLIP_PROBE_OWNER_IDS:?set CLIP_PROBE_OWNER_IDS in .env}
+
+      # Container names resolve on the shared network. Prefer a read-only role
+      # over Immich's own DB_USERNAME -- see "Security" in the README.
+      DB_URL: postgresql://${DB_USERNAME}:${DB_PASSWORD}@immich_postgres:5432/${DB_DATABASE_NAME}
+
+      # Immich's ML container. No authentication -- see the README.
+      IMMICH_ML_URL: http://immich_machine_learning:3003
+
+      # Must match Administration -> Settings -> Machine Learning -> Smart Search.
+      CLIP_MODEL: ViT-B-32__openai
+
+      # Optional. Only string-concatenated into response links; never fetched.
+      PUBLIC_IMMICH_URL: ${PUBLIC_IMMICH_URL:-}
+    ports:
+      - '8080:8080'
+
+    # Optional, if you front it with Traefik like the rest of your stack.
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.docker.network=traefik
+    #   - traefik.http.routers.clipprobe.rule=Host(`clip-probe.home.example`)
+    #   - traefik.http.routers.clipprobe.entrypoints=websecure
+    #   - traefik.http.routers.clipprobe.tls=true
+    #   - traefik.http.routers.clipprobe.tls.certresolver=myresolver
+    #   - traefik.http.services.clipprobe.loadbalancer.server.port=8080
+
+    networks:
+      - immich
+      # - traefik
+
+networks:
+  immich:
+    external: true
+    name: immich_default
+  # traefik:
+  #   external: true
+
+# -----------------------------------------------------------------------------
+# Option C — bring your own ML container.
+#
+# Usually NOT worth it. Read this before reaching for it.
+#
+# The ML container is stateless and unauthenticated, so you can absolutely run a
+# second copy inside this stack instead of reusing Immich's. But it buys less
+# than it looks like:
+#
+#   - It does NOT remove the Immich dependency. You still need `immich_postgres`,
+#     so you are still on `immich_default` either way.
+#   - It costs ~1 GB RAM for the resident model plus a one-off model download
+#     into its own cache volume.
+#   - CLIP_MODEL still has to match whatever Immich indexed with. A second
+#     container does not free you to pick a different model -- vectors from
+#     different models are not comparable.
+#
+# The one case where it earns its keep: your ML container is saturated by
+# indexing or facial recognition and you do not want probes queued behind that
+# work, or it runs on a GPU you would rather not share.
+#
+# To use it, replace the IMMICH_ML_URL above with http://clip-probe-ml:3003 and
+# uncomment:
+#
+#   clip-probe-ml:
+#     container_name: clip_probe_ml
+#     image: ghcr.io/immich-app/immich-machine-learning:release
+#     restart: always
+#     environment:
+#       # Only the visual encoder is ever used; keep it resident so probes do not
+#       # pay a cold start. Textual/facial/OCR models are never loaded.
+#       MACHINE_LEARNING_PRELOAD__CLIP__VISUAL: ViT-B-32__openai
+#       MACHINE_LEARNING_MODEL_TTL: 0
+#     volumes:
+#       - clip-probe-model-cache:/cache
+#     networks:
+#       - immich
+#
+# volumes:
+#   clip-probe-model-cache:
+# -----------------------------------------------------------------------------

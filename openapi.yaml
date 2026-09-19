@@ -1,0 +1,397 @@
+openapi: 3.1.0
+
+info:
+  title: immich-clip-probe
+  version: 0.1.0
+  summary: Check a local image against an Immich library for visual near-duplicates.
+  description: |
+    Exposes Immich's CLIP similarity search for files that are **not** in Immich yet.
+
+    The service encodes the submitted image with the same CLIP model your Immich
+    instance uses, then runs the same cosine nearest-neighbour query Immich's own
+    duplicate detector runs against the `smart_search` table.
+
+    It is read-only: nothing is uploaded to Immich, nothing is written to the
+    database, no Immich job is queued.
+
+    ## Expected input: a 1440px, quality-80 JPEG
+
+    Immich does not embed your original file. It embeds the **preview
+    derivative** — by default a JPEG with a long edge of 1440px at quality 80
+    ([`handleEncodeClip`][encode] selects [`AssetFileType.Preview`][preview];
+    defaults in [`config.dto.ts`][cfg]). Every vector in `smart_search` is
+    therefore the embedding of that rendering, not of a full-resolution original.
+
+    To make your query comparable with what is stored, submit the image in the
+    same shape:
+
+    - **format** `image/jpeg`
+    - **long edge** 1440px (smaller is fine — images are never upscaled)
+    - **quality** 80
+    - **EXIF orientation already applied** (rotate the pixels; CLIP is not
+      rotation-invariant)
+
+    Anything else is normalized server-side when `PREVIEW_PARITY=true` (the
+    default). An input that is already JPEG with a long edge of 1440px or less is
+    passed through **untouched** — re-encoding it would add a second generation
+    of JPEG loss for nothing. So sending the expected shape is both the most
+    accurate and the cheapest option.
+
+    ImageMagick one-liner:
+
+    ```
+    magick input.jpg -auto-orient -resize 1440x1440\> -quality 80 query.jpg
+    ```
+
+    [encode]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/services/smart-info.service.ts#L88-L104
+    [preview]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/asset-job.repository.ts#L223-L230
+    [cfg]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/dtos/config.dto.ts#L702-L707
+  license:
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+
+servers:
+  - url: http://localhost:8080
+    description: Direct container access
+  - url: https://clip-probe.home.example
+    description: Behind a reverse proxy
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: search
+  - name: ops
+
+paths:
+  /v1/similar:
+    post:
+      tags: [search]
+      operationId: findSimilar
+      summary: Find assets in Immich that look like the submitted image.
+      description: |
+        Submit one image. Get back the visually nearest assets already indexed in
+        Immich, ordered by ascending cosine distance.
+
+        See the API description for the expected 1440px / q80 JPEG input.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of matches to return.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+        - name: max_distance
+          in: query
+          description: |
+            Cosine-distance cut-off. Matches above this are dropped, and
+            `duplicate` is true only if the nearest match is at or below it.
+            The default mirrors Immich's own duplicate-detection default.
+          schema: { type: number, minimum: 0, maximum: 2, default: 0.01 }
+        - name: all
+          in: query
+          description: |
+            Return the `limit` nearest matches regardless of `max_distance`.
+            Use this to calibrate a threshold for your own library.
+          schema: { type: boolean, default: false }
+        - name: type
+          in: query
+          description: Restrict to a single asset type, or `all` for both.
+          schema: { type: string, enum: [IMAGE, VIDEO, all], default: IMAGE }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    The image to check. **Expected: JPEG, long edge 1440px,
+                    quality 80, EXIF orientation already applied** — matching the
+                    preview derivative Immich indexed. Other formats and sizes
+                    are normalized server-side; HEIC and camera RAW are not
+                    decodable and return 415.
+            encoding:
+              file:
+                contentType: image/jpeg, image/png, image/webp, image/tiff, image/gif
+          image/jpeg:
+            schema: { type: string, format: binary }
+          image/png:
+            schema: { type: string, format: binary }
+          image/webp:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: Search completed. An empty `matches` array is a normal result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimilarResponse' }
+              examples:
+                duplicate:
+                  summary: Near-certain duplicate
+                  value:
+                    query:
+                      fileName: IMG_4821.jpg
+                      bytes: 284193
+                      width: 1440
+                      height: 1080
+                      normalized: false
+                      model: ViT-B-32__openai
+                      dimensions: 512
+                    duplicate: true
+                    maxDistance: 0.01
+                    matches:
+                      - assetId: 8f2c1d94-3a77-4c0e-9d51-6b0f2a1e77bc
+                        originalFileName: IMG_4821.HEIC
+                        type: IMAGE
+                        localDateTime: '2024-07-18T14:02:11.000Z'
+                        fileCreatedAt: '2024-07-18T12:02:11.000Z'
+                        ownerId: 3d1b0c6e-5f2a-4a1d-8e77-91c4f0b2a5de
+                        distance: 0.0031
+                        similarity: 0.9969
+                        links:
+                          web: https://immich.home.example/photos/8f2c1d94-3a77-4c0e-9d51-6b0f2a1e77bc
+                          thumbnail: https://immich.home.example/api/assets/8f2c1d94-3a77-4c0e-9d51-6b0f2a1e77bc/thumbnail
+                    timings: { normalizeMs: 0, embedMs: 143, queryMs: 8, totalMs: 154 }
+                noMatch:
+                  summary: Nothing close enough
+                  value:
+                    query:
+                      fileName: sunset.png
+                      bytes: 4193280
+                      width: 4032
+                      height: 3024
+                      normalized: true
+                      model: ViT-B-32__openai
+                      dimensions: 512
+                    duplicate: false
+                    maxDistance: 0.01
+                    matches: []
+                    timings: { normalizeMs: 61, embedMs: 139, queryMs: 7, totalMs: 212 }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+
+  /healthz:
+    get:
+      tags: [ops]
+      operationId: health
+      summary: Liveness and compatibility check.
+      description: |
+        Verifies the database connection, the ML container, and that the
+        configured `CLIP_MODEL` produces vectors of the same dimension as the
+        ones stored in `smart_search`. A dimension mismatch means every distance
+        you get back would be meaningless, so it is reported as unhealthy.
+      security: []
+      responses:
+        '200':
+          description: Healthy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example:
+                status: ok
+                db: ok
+                ml: ok
+                model: ViT-B-32__openai
+                dimensions: 512
+                indexedAssets: 48213
+        '503':
+          description: Unhealthy. At least one check failed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example:
+                status: error
+                db: ok
+                ml: ok
+                model: ViT-L-14-336__openai
+                dimensions: 768
+                indexedAssets: 48213
+                message: 'model mismatch: CLIP_MODEL yields 768 dims, smart_search stores 512'
+
+components:
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: |
+        A token belonging to **this service**, set via the `API_TOKEN`
+        environment variable. It is not an Immich API key and is not forwarded
+        to Immich. Generate one with `openssl rand -hex 32`.
+
+  responses:
+    Error:
+      description: Error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+
+    SimilarResponse:
+      type: object
+      required: [query, duplicate, maxDistance, matches]
+      properties:
+        query:
+          $ref: '#/components/schemas/Query'
+        duplicate:
+          type: boolean
+          description: |
+            True when the nearest match is at or below `maxDistance`. Always
+            false when `all=true` is used, since no threshold was applied.
+        maxDistance:
+          type: number
+          description: The threshold actually applied, echoed back so a client can log it.
+          example: 0.01
+        matches:
+          type: array
+          description: Nearest assets, ascending by `distance`. May be empty.
+          items: { $ref: '#/components/schemas/Match' }
+        timings:
+          $ref: '#/components/schemas/Timings'
+
+    Query:
+      type: object
+      description: What the service actually embedded. Present so a surprising result can be explained without reading logs.
+      required: [bytes, width, height, normalized, model, dimensions]
+      properties:
+        fileName:
+          type: string
+          description: Filename from the multipart part, if one was sent. Never used for matching.
+          example: IMG_4821.jpg
+        bytes:
+          type: integer
+          description: Size of the submitted file.
+          example: 284193
+        width:
+          type: integer
+          description: Width of the image as submitted.
+          example: 1440
+        height:
+          type: integer
+          example: 1080
+        normalized:
+          type: boolean
+          description: |
+            True if the service resized or re-encoded the image to preview parity
+            before embedding. False means the input was already an acceptable
+            JPEG and was passed through untouched.
+          example: false
+        model:
+          type: string
+          description: CLIP model used, which must match the one Immich indexed with.
+          example: ViT-B-32__openai
+        dimensions:
+          type: integer
+          description: Length of the embedding vector.
+          example: 512
+
+    Match:
+      type: object
+      required: [assetId, originalFileName, type, distance, similarity]
+      properties:
+        assetId:
+          type: string
+          format: uuid
+          example: 8f2c1d94-3a77-4c0e-9d51-6b0f2a1e77bc
+        originalFileName:
+          type: string
+          description: |
+            The filename as uploaded. Note it may differ in extension from your
+            local file — an iPhone HEIC uploaded and kept as HEIC still matches a
+            JPEG you exported from it.
+          example: IMG_4821.HEIC
+        type:
+          type: string
+          enum: [IMAGE, VIDEO]
+        localDateTime:
+          type: string
+          format: date-time
+          description: Immich's wall-clock capture time, the one shown in the timeline.
+        fileCreatedAt:
+          type: string
+          format: date-time
+        ownerId:
+          type: string
+          format: uuid
+          description: Useful only when the service is configured with several owner ids.
+        distance:
+          type: number
+          description: |
+            Cosine distance between the query embedding and the asset embedding.
+            0 is identical direction, 1 is orthogonal, 2 is opposite.
+          example: 0.0031
+        similarity:
+          type: number
+          description: '`1 - distance`. Provided because it reads more naturally; it carries no extra information.'
+          example: 0.9969
+        links:
+          type: object
+          description: Absent unless `PUBLIC_IMMICH_URL` is configured.
+          properties:
+            web:
+              type: string
+              format: uri
+              description: Deep link to the asset in the Immich web UI.
+            thumbnail:
+              type: string
+              format: uri
+              description: Immich thumbnail endpoint. Requires your own Immich session or API key to fetch; this service does not proxy it.
+
+    Timings:
+      type: object
+      description: Per-stage wall-clock milliseconds. Cheap to produce and the fastest way to see that the ML container is cold-starting.
+      properties:
+        normalizeMs: { type: integer, example: 0 }
+        embedMs:     { type: integer, example: 143 }
+        queryMs:     { type: integer, example: 8 }
+        totalMs:     { type: integer, example: 154 }
+
+    Health:
+      type: object
+      required: [status, db, ml]
+      properties:
+        status: { type: string, enum: [ok, error] }
+        db:     { type: string, enum: [ok, error] }
+        ml:     { type: string, enum: [ok, error] }
+        model:  { type: string, example: ViT-B-32__openai }
+        dimensions:
+          type: integer
+          description: Embedding dimension found in `smart_search`.
+          example: 512
+        indexedAssets:
+          type: integer
+          description: Rows in `smart_search` visible to the configured owners. Zero means Smart Search has never run.
+          example: 48213
+        message:
+          type: string
+          description: Present when `status` is `error`.
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Stable machine-readable code. Match on this, not on `message`.
+          enum:
+            - unauthorized          # 401  missing or wrong x-api-key
+            - bad_request           # 400  no file part, or an invalid query parameter
+            - payload_too_large     # 413  body exceeds MAX_UPLOAD_BYTES
+            - unsupported_media     # 415  not a decodable image (HEIC, RAW, video, garbage)
+            - zero_size_image       # 415  decoded to zero width or height
+            - ml_unavailable        # 502  ML container unreachable or erroring
+            - model_mismatch        # 500  embedding dimension differs from smart_search
+            - db_unavailable        # 503  database unreachable
+        message:
+          type: string
+          description: Human-readable detail. Wording is not stable across versions.
+          example: 'file is not a decodable image; HEIC and RAW are not supported'

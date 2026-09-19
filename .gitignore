@@ -1,0 +1,9 @@
+immich-clip-probe
+immich-clip-probe.exe
+clip-probe
+clip-probe.exe
+apm_modules/
+*.jpg
+*.jpeg
+*.png
+.env

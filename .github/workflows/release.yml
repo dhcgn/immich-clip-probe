@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      # The Immich Postgres image, so the database tests run against the same
+      # vector extension the real deployment uses.
+      postgres:
+        image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+        env:
+          POSTGRES_USER: pg
+          POSTGRES_PASSWORD: pw
+          POSTGRES_DB: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U pg" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - run: go test -race ./...
+        env:
+          TEST_DB_URL: postgresql://pg:pw@localhost:5432/test
+
+  publish:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

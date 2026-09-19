@@ -1,0 +1,121 @@
+#
+# Option A — clip-probe added to Immich's own stack. Recommended.
+#
+# This is the official Immich compose file, unchanged except for the
+# `clip-probe` service at the bottom. Diff it against yours before using:
+#   https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
+#
+# Everything clip-probe needs is already on this project's default network,
+# so there is no networking to configure at all.
+#
+# For a separate stack, see docker-compose.standalone.yml.
+#
+
+name: immich
+
+services:
+  immich-server:
+    container_name: immich_server
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    # extends:
+    #   file: hwaccel.transcoding.yml
+    #   service: cpu # set to one of [nvenc, quicksync, rkmpp, vaapi, vaapi-wsl] for accelerated transcoding
+    volumes:
+      # Do not edit the next line. If you want to change the media storage location on your system, edit the value of UPLOAD_LOCATION in the .env file
+      - ${UPLOAD_LOCATION}:/data
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    ports:
+      - '2283:2283'
+    depends_on:
+      - redis
+      - database
+    restart: always
+    healthcheck:
+      disable: false
+
+  immich-machine-learning:
+    container_name: immich_machine_learning
+    # For hardware acceleration, add one of -[armnn, cuda, rocm, openvino, rknn] to the image tag.
+    # Example tag: ${IMMICH_VERSION:-release}-cuda
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    # extends: # uncomment this section for hardware acceleration - see https://docs.immich.app/features/ml-hardware-acceleration
+    #   file: hwaccel.ml.yml
+    #   service: cpu # set to one of [armnn, cuda, rocm, openvino, openvino-wsl, rknn] for accelerated inference - use the `-wsl` version for WSL2 where applicable
+    volumes:
+      - model-cache:/cache
+    env_file:
+      - .env
+    restart: always
+    healthcheck:
+      disable: false
+    # Optional, see "Cold starts" in the README. The CLIP model is unloaded
+    # after MACHINE_LEARNING_MODEL_TTL seconds of inactivity (default 300), so an
+    # occasional probe pays a multi-second model load. Uncomment to keep the
+    # visual encoder resident. Costs ~1 GB RAM and also affects Immich itself.
+    # environment:
+    #   MACHINE_LEARNING_MODEL_TTL: 0
+    #   MACHINE_LEARNING_PRELOAD__CLIP__VISUAL: ViT-B-32__openai
+
+  redis:
+    container_name: immich_redis
+    image: docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+    restart: always
+
+  database:
+    container_name: immich_postgres
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+      # Uncomment the DB_STORAGE_TYPE: 'HDD' var if your database isn't stored on SSDs
+      # DB_STORAGE_TYPE: 'HDD'
+    volumes:
+      # Do not edit the next line. If you want to change the database storage location on your system, edit the value of DB_DATA_LOCATION in the .env file
+      - ${DB_DATA_LOCATION}:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: always
+    healthcheck:
+      disable: false
+
+  # ---------------------------------------------------------------------------
+  # The only addition. Everything above is stock Immich.
+  # ---------------------------------------------------------------------------
+  clip-probe:
+    container_name: immich_clip_probe
+    image: ghcr.io/dhcgn/immich-clip-probe:latest
+    environment:
+      # This service's own token. Not an Immich API key.
+      #   openssl rand -hex 32
+      API_TOKEN: ${CLIP_PROBE_TOKEN}
+
+      # Which Immich user's library to search. Comma-separated UUIDs.
+      #   SELECT id, email FROM "user";
+      OWNER_IDS: ${CLIP_PROBE_OWNER_IDS}
+
+      # Reuses the same credentials the Immich server uses. See the README for a
+      # read-only role, which is what you want past the first run.
+      DB_URL: postgresql://${DB_USERNAME}:${DB_PASSWORD}@database:5432/${DB_DATABASE_NAME}
+
+      # Immich's ML container. No authentication — see the README.
+      IMMICH_ML_URL: http://immich-machine-learning:3003
+
+      # Must match Administration -> Settings -> Machine Learning -> Smart Search.
+      CLIP_MODEL: ViT-B-32__openai
+
+      # Optional. Only string-concatenated into response links; never fetched.
+      PUBLIC_IMMICH_URL: ${PUBLIC_IMMICH_URL:-}
+    ports:
+      - '8080:8080'
+    depends_on:
+      - database
+      - immich-machine-learning
+    restart: always
+
+volumes:
+  model-cache:
