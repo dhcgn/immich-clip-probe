@@ -90,9 +90,33 @@ type healthResponse struct {
 	Message       string `json:"message,omitempty"`
 }
 
+// errCode is the stable, machine-readable half of an error response. Clients
+// match on this; the message is free text and not a contract.
+//
+// These values are duplicated in openapi.yaml as the Error.error enum, and
+// openapi_test.go asserts the two sets are identical.
+type errCode string
+
+const (
+	errUnauthorized    errCode = "unauthorized"
+	errBadRequest      errCode = "bad_request"
+	errPayloadTooLarge errCode = "payload_too_large"
+	errUnsupportedType errCode = "unsupported_media"
+	errZeroSizeImage   errCode = "zero_size_image"
+	errMLUnavailable   errCode = "ml_unavailable"
+	errModelMismatch   errCode = "model_mismatch"
+	errDBUnavailable   errCode = "db_unavailable"
+)
+
+// allErrCodes is what the contract test checks against the spec.
+var allErrCodes = []errCode{
+	errUnauthorized, errBadRequest, errPayloadTooLarge, errUnsupportedType,
+	errZeroSizeImage, errMLUnavailable, errModelMismatch, errDBUnavailable,
+}
+
 type errorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
+	Error   errCode `json:"error"`
+	Message string  `json:"message"`
 }
 
 // ---------------------------------------------------------------------------
@@ -101,24 +125,24 @@ func (s *server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	if !s.authorized(r) {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid x-api-key")
+		writeError(w, http.StatusUnauthorized, errUnauthorized, "missing or invalid x-api-key")
 		return
 	}
 
 	limit, maxDist, all, types, err := s.params(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		writeError(w, http.StatusBadRequest, errBadRequest, err.Error())
 		return
 	}
 
 	raw, fileName, err := s.readImage(w, r)
 	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large",
+			writeError(w, http.StatusRequestEntityTooLarge, errPayloadTooLarge,
 				"body exceeds MAX_UPLOAD_BYTES ("+strconv.FormatInt(s.cfg.maxUploadBytes, 10)+" bytes)")
 			return
 		}
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		writeError(w, http.StatusBadRequest, errBadRequest, err.Error())
 		return
 	}
 
@@ -127,11 +151,11 @@ func (s *server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 	normalizeMs := time.Since(t0).Milliseconds()
 	if err != nil {
 		if errors.Is(err, errUndecodable) {
-			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media",
+			writeError(w, http.StatusUnsupportedMediaType, errUnsupportedType,
 				"not a decodable image; HEIC and camera RAW are not supported, convert to JPEG first")
 			return
 		}
-		writeError(w, http.StatusUnsupportedMediaType, "zero_size_image", err.Error())
+		writeError(w, http.StatusUnsupportedMediaType, errZeroSizeImage, err.Error())
 		return
 	}
 
@@ -140,14 +164,14 @@ func (s *server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 	embedMs := time.Since(t0).Milliseconds()
 	if err != nil {
 		slog.Warn("encode failed", "err", err)
-		writeError(w, http.StatusBadGateway, "ml_unavailable", "machine learning container: "+err.Error())
+		writeError(w, http.StatusBadGateway, errMLUnavailable, "machine learning container: "+err.Error())
 		return
 	}
 
 	dims := vectorDims(embedding)
 	if stored := int(s.storedDims.Load()); stored > 0 && dims != stored {
 		slog.Error("model mismatch", "configured", s.cfg.clipModel, "got_dims", dims, "stored_dims", stored)
-		writeError(w, http.StatusInternalServerError, "model_mismatch",
+		writeError(w, http.StatusInternalServerError, errModelMismatch,
 			"CLIP_MODEL "+s.cfg.clipModel+" yields "+strconv.Itoa(dims)+
 				" dimensions but smart_search stores "+strconv.Itoa(stored)+
 				"; set CLIP_MODEL to the model Immich indexed with")
@@ -164,7 +188,7 @@ func (s *server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 	queryMs := time.Since(t0).Milliseconds()
 	if err != nil {
 		slog.Error("search failed", "err", err)
-		writeError(w, http.StatusServiceUnavailable, "db_unavailable", "database: "+err.Error())
+		writeError(w, http.StatusServiceUnavailable, errDBUnavailable, "database: "+err.Error())
 		return
 	}
 	for i := range matches {
@@ -359,6 +383,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	}
 }
 
-func writeError(w http.ResponseWriter, status int, code, message string) {
+func writeError(w http.ResponseWriter, status int, code errCode, message string) {
 	writeJSON(w, status, errorResponse{Error: code, Message: message})
 }

@@ -477,6 +477,7 @@ after one breaks something.
 ├── image_test.go        # parity pass-through and rendering
 ├── ml_test.go           # the entries contract, verbatim embedding passthrough
 ├── search_test.go       # owner scoping and index usage (needs TEST_DB_URL)
+├── openapi_test.go      # the spec and the wire types cannot drift apart
 ├── openapi.yaml
 ├── .claude/skills/immich-compat/SKILL.md   # where to look when an upgrade breaks it
 ├── Dockerfile
@@ -489,7 +490,9 @@ Flat package, no `internal/`, no `cmd/`. Five Go files is not a codebase that
 needs a directory tree. (`auth.go` folded into `handler.go` the moment auth
 became one constant-time compare.)
 
-**Dependencies:** `github.com/jackc/pgx/v5` and `golang.org/x/image`. That is the
+**Dependencies:** `github.com/jackc/pgx/v5` and `golang.org/x/image` at runtime,
+plus `github.com/getkin/kin-openapi` for the contract test only — it is not
+reachable from any non-test file, so it is absent from the binary. That is the
 whole list. Go 1.27's `net/http` routing (`mux.HandleFunc("POST /v1/similar", …)`),
 `log/slog`, `mime/multipart`, `crypto/subtle` and `encoding/json` cover everything
 else — no router, no logging framework, no config library, no ORM.
@@ -513,6 +516,19 @@ One runnable check per piece of non-trivial logic, nothing more.
    verbatim.
 4. **Parity pass-through** — a 1200px JPEG comes out byte-identical; a 4000px PNG
    comes out as a ≤1440 JPEG. Both report the right `normalized` flag.
+5. **Spec conformance** — `openapi.yaml` is a published contract, so the wire
+   types are compared field-for-field against it, in both directions: a field Go
+   emits that the spec omits fails, and so does the reverse. Schema validation
+   alone would miss the first and more common case. The error-code enum and the
+   documented paths are checked the same way.
+
+   Code generation from the spec (`oapi-codegen`) was the obvious alternative and
+   was measured rather than assumed: it produces ~800 lines to replace ~100, needs
+   the three `image/*` request content types collapsed into one to compile at all,
+   and still leaves every parameter as a pointer to be defaulted by hand. The
+   contract test buys the same protection against drift for about 150 lines and a
+   test-only dependency, without making the published spec worse to satisfy a
+   generator.
 
 `go test ./...` against a `docker run` Postgres with the vector extension. No
 fixtures framework, no mocks package.
