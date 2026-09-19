@@ -487,7 +487,7 @@ after one breaks something.
 ├── Dockerfile
 ├── docker-compose.example.yml      # Immich's compose + clip-probe  (option A)
 ├── docker-compose.standalone.yml   # own stack, joins immich_default (option B)
-└── .github/workflows/release.yml   # test, then build + push to ghcr.io
+└── .github/workflows/release.yml   # test, push images, and cut a release on a v* tag
 ```
 
 Flat package, no `internal/`, no `cmd/`. Five Go files is not a codebase that

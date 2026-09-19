@@ -1,5 +1,19 @@
 # immich-clip-probe
 
+> [!WARNING]
+> **This repository is under active development. Do not expect anything to work.**
+>
+> Interfaces, configuration and the API shape can change without notice, and
+> there is no stable release. It also depends on two *internal* Immich
+> interfaces — the ML container's HTTP API and the Postgres schema — neither of
+> which carries any compatibility promise, so an Immich upgrade can break it at
+> any time. Read [ARCHITECTURE.md § Version coupling](ARCHITECTURE.md#10-version-coupling)
+> before relying on it for anything.
+>
+> It is read-only against Immich and never uploads, writes or deletes — so the
+> worst case is a wrong answer, not a damaged library. Treat every result as a
+> hint to verify, not as proof.
+
 > Ask your Immich library: **"do I already have a photo that looks like this one?"** — over HTTP, before you upload.
 
 A small Go service in a container that exposes Immich's existing CLIP similarity
@@ -377,6 +391,24 @@ Rough bands on a typical library — **measure your own**, these are not univers
 | `0.005 – 0.02` | same scene, adjacent frame or a light edit |
 | `0.02 – 0.10` | same subject or location, different photo |
 | `> 0.10` | merely similar-looking |
+
+## Image tags and releases
+
+| Tag | What it is |
+| --- | --- |
+| `:latest`, `:main` | The tip of `main`. Moves on every push, may be broken — see the warning at the top |
+| `:0.1.0` | A tagged release, built from that exact commit |
+| `:0.1` | The newest patch within that minor version |
+
+Given the state of the project, `:latest` is the honest default and is what the
+compose files use. Pin a version tag once you care about reproducibility.
+
+Cutting a release is a tag push; CI builds the images and opens the GitHub
+Release with generated notes:
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0
+```
 
 ## Limitations
 
