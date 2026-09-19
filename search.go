@@ -13,11 +13,13 @@ import (
 // searchSQL mirrors DuplicateRepository.search, minus the self-exclusion (our
 // query image is not an asset).
 //
-// The CTE is load-bearing. The distance filter must be applied AFTER the ordered
-// limit: move `distance <= $5` into the inner WHERE and the planner can no longer
-// satisfy the query from the ANN index, turning this into a sequential scan over
-// every embedding in the library. Immich wraps it the same way for the same
-// reason. `<=>` is cosine distance and must match the index's vector_cosine_ops.
+// The CTE keeps the inner query a plain ORDER BY ... LIMIT, which is the form an
+// ANN index serves, and it is the shape Immich itself uses. Moving `distance <=
+// $5` into the inner WHERE returns the same rows -- the difference is what the
+// planner can do with it, not the result -- so nothing but an EXPLAIN at
+// production scale will tell you it regressed. Leave the shape alone.
+//
+// `<=>` is cosine distance and must match the index's vector_cosine_ops.
 //
 // See ARCHITECTURE.md section 5.
 const searchSQL = `

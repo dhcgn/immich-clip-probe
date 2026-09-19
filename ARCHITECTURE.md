@@ -229,11 +229,15 @@ SELECT * FROM cte WHERE cte.distance <= $5;
 
 Four things in there are load-bearing:
 
-- **The CTE is not cosmetic.** The distance filter has to be applied *after* the
-  ordered limit. Put `distance <= $5` in the inner `WHERE` and the planner can no
-  longer satisfy the query from the ANN index, and you get a sequential scan over
-  every embedding in the library. Immich wraps it the same way for the same
-  reason. With `all=true` the outer filter is simply dropped.
+- **The CTE is not cosmetic, but it is not about results either.** Both forms
+  return identical rows: if at least `limit` rows sit under the threshold then
+  the nearest `limit` are all under it anyway, and if fewer do, every qualifying
+  row is already inside the nearest `limit`. The CTE exists so the inner query
+  stays a plain `ORDER BY … LIMIT`, the form an ANN index serves, and because it
+  is the shape Immich uses. Since the difference is invisible in the output, only
+  an `EXPLAIN` at production scale will tell you it regressed — which is why that
+  check lives in the compat skill rather than in a test. With `all=true` the
+  outer filter is simply dropped.
 - **`<=>` is cosine distance** and must match the index's `vector_cosine_ops`.
   Using `<->` (L2) or `<#>` (inner product) silently bypasses the index. Immich
   uses `<=>` in [`search.repository.ts`][searchrepo] too.
@@ -507,9 +511,18 @@ One runnable check per piece of non-trivial logic, nothing more.
 1. **Owner scoping** — insert two owners' embeddings into a throwaway Postgres,
    query with `OWNER_IDS` set to one, assert no row belongs to the other. This is
    the configured blast radius; it gets a test.
-2. **Query shape** — `EXPLAIN` the §5 query and assert the ANN index appears in
-   the plan. Cheap, and it catches the accidental-seq-scan regression that is
-   otherwise only visible as "it got slow".
+2. **Threshold semantics** — a filtered search returns a prefix of the unfiltered
+   nearest results: same rows, same order, truncated.
+
+   An `EXPLAIN`-based test asserting the ANN index appears in the plan was tried
+   and removed. It cannot work on a synthetic fixture: Postgres picks a
+   sequential scan below roughly production scale no matter how the query is
+   written, and forcing the planner with `enable_seqscan = off` only made it
+   choose the primary key instead. Nor is there a behavioural test to fall back
+   on, because moving the threshold into the CTE returns identical rows (§5).
+   Index usage was verified once against a live Immich instance and is re-checked
+   on upgrade via the compat skill — the honest place for a property CI cannot
+   observe.
 3. **ML round trip** — an `httptest` server returning a canned `{"clip":"[…]"}`;
    assert the multipart `entries` field is exactly
    `{"clip":{"visual":{"modelName":"…"}}}` and that the string reaches the query
