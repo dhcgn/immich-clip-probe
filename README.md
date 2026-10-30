@@ -244,12 +244,13 @@ query is only comparable if its centre square frames the same thing theirs does.
 **Do**
 
 - **Apply EXIF orientation** into the pixels. CLIP is not rotation-invariant, and
-  Immich's preview generator rotates before embedding. This is the one step the
-  service cannot do for you — an unrotated portrait photo scores badly against
-  its own upright twin.
+  Immich's preview generator rotates before embedding — an unrotated portrait
+  photo scores badly against its own upright twin. The service does this for
+  JPEG input; for anything else it is up to you.
 - **Preserve aspect ratio.** It decides what survives the centre crop.
-- **Resize the long edge to 1440**, matching Immich's preview default, so both
-  sides of the comparison went through the same two resampling steps.
+- **Resize the long edge to 1440.** Immich's own preview puts 1440 on the short
+  edge, but with any resampler other than its libvips one the long-edge rendering
+  measured closer to the stored vectors (ARCHITECTURE.md §6).
 - **Flatten transparency** onto a solid colour first. Alpha is discarded, and a
   transparent background can land as black.
 - **Leave the colour profile alone.** Converting between sRGB and Display P3
@@ -270,11 +271,13 @@ query is only comparable if its centre square frames the same thing theirs does.
 #### What the service does for you
 
 With `PREVIEW_PARITY=true` (the default) anything non-conforming is resized and
-re-encoded server-side, and a JPEG already within 1440px is passed through
-untouched. `query.normalized` in the response tells you which happened.
+re-encoded server-side, a JPEG is rotated by its EXIF orientation, and an upright
+JPEG already within 1440px is passed through untouched. `query.normalized` in the
+response tells you which happened.
 
-It does **not** rotate by EXIF, decode HEIC or RAW, or flatten transparency. So
-the one thing worth doing yourself is `-auto-orient`; the rest is a convenience.
+It does **not** decode HEIC or RAW, flatten transparency, or rotate formats other
+than JPEG. For a JPEG straight off a camera, the command above is a bandwidth
+saving rather than a correctness step.
 
 #### Why 1440 and quality 80
 
@@ -419,7 +422,7 @@ an unauthenticated inference endpoint, as described above.
 | `DEFAULT_LIMIT` | `10` | |
 | `MAX_UPLOAD_BYTES` | `52428800` | 50 MiB |
 | `PREVIEW_PARITY` | `true` | normalize non-conforming input to 1440px / q80 JPEG |
-| `VCHORD_PROBES` | `1` | [Immich's default][probes]; raise for better recall at higher cost |
+| `VCHORD_PROBES` | `0` (auto) | IVF lists to scan. Auto = `ceil(lists/8)` from `clip_index`, what [Immich's own search][probes] uses; the database default of 1 misses matches once the index has more than one list. Raise for better recall at higher cost |
 | `LOG_LEVEL` | `info` | |
 
 ### Model must match
@@ -512,7 +515,7 @@ a symptom → where-to-look table. Worth running *before* an upgrade too.
 [cliptransform]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/clip/visual.py#L71-L76
 [transforms]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/models/transforms.py#L14-L27
 [modelttl]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/machine-learning/immich_ml/config.py#L58
-[probes]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/database.repository.ts#L118-L119
+[probes]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/database.repository.ts#L361-L371
 [usertbl]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/schema/tables/user.table.ts#L20
 
 ## License

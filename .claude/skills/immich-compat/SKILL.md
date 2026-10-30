@@ -67,8 +67,9 @@ commit — use them to see what the code *used* to say.
 | `column "..." does not exist` | `smart-search.table.ts`, `asset.table.ts` | `search.go` |
 | Dimension mismatch / `model_mismatch` | `config.dto.ts` → the `clip.modelName` default changed, or the admin changed it. Vectors from different models are not comparable | `CLIP_MODEL`, then **re-run Smart Search in Immich** |
 | Everything got slow, CPU pegged | `duplicate.repository.sql` → `DuplicateRepository.search`. Check the CTE shape and the distance operator still match | `search.go` |
-| Vector extension or tuning GUC changed | `database.repository.ts` → search for `probes` / `ef_search`; also the postgres image tag in Immich's compose | `search.go`, `VCHORD_PROBES` |
-| Distances subtly shifted for everything | `config.dto.ts` → `image.preview` defaults (size 1440, quality 80), and `smart-info.service.ts` → `handleEncodeClip` may select a different `AssetFileType` | `image.go`, `openapi.yaml`, README |
+| Vector extension or tuning GUC changed | `database.repository.ts` → search for `probes` / `ef_search`; `targetProbeCount` and `targetListCount` (mirrored by `probesFor`), and the `lists = [` regex in `reindexVectorsIfNeeded`; also the postgres image tag in Immich's compose | `search.go`, `VCHORD_PROBES` |
+| Assets that are in Immich intermittently do not find themselves | the probe count: check the `vchordrq.probes` value logged at startup against `ceil(lists/8)` of `clip_index` | `search.go`, `VCHORD_PROBES` |
+| Distances subtly shifted for everything | `config.dto.ts` → `image.preview` defaults (size 1440, quality 80); `media.repository.ts` → the resize `fit` and orientation handling; `smart-info.service.ts` → `handleEncodeClip` may select a different `AssetFileType` | `image.go`, `openapi.yaml`, README |
 | Assets missing that should match | `enum.ts` → `AssetVisibility` values, used in the `visibility IN (...)` filter | `search.go` |
 | Wrong ML port / endpoint | `machine-learning/immich_ml/config.py` → `immich_port` | `IMMICH_ML_URL` default |
 
