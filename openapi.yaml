@@ -17,8 +17,8 @@ info:
     ## Expected input: a 1440px, quality-80 JPEG
 
     Immich does not embed your original file. It embeds the **preview
-    derivative** — by default a JPEG with a long edge of 1440px at quality 80
-    ([`handleEncodeClip`][encode] selects [`AssetFileType.Preview`][preview];
+    derivative** — by default an upright JPEG at quality 80 whose short edge is
+    1440px ([`handleEncodeClip`][encode] selects [`AssetFileType.Preview`][preview];
     defaults in [`config.dto.ts`][cfg]). Every vector in `smart_search` is
     therefore the embedding of that rendering, not of a full-resolution original.
 
@@ -26,17 +26,19 @@ info:
     same shape:
 
     - **format** `image/jpeg`
-    - **long edge** 1440px (smaller is fine — images are never upscaled)
+    - **long edge** 1440px (smaller is fine — images are never upscaled). Not
+      Immich's short edge: with a resampler other than its own, this rendering
+      measured closer to the stored vectors.
     - **quality** 80
-    - **EXIF orientation already applied** (rotate the pixels; CLIP is not
-      rotation-invariant). This is the one step the service does not do for you.
+    - **EXIF orientation applied** (CLIP is not rotation-invariant). The service
+      rotates JPEGs itself; rotate other formats before sending.
     - **aspect ratio preserved** — do not crop, pad or letterbox. CLIP scales the
       shortest edge to 224 and then takes a 224×224 **centre crop**, so it only
       ever sees the middle of the frame; padding pushes real content out of it.
 
     Anything else is normalized server-side when `PREVIEW_PARITY=true` (the
-    default). An input that is already JPEG with a long edge of 1440px or less is
-    passed through **untouched** — re-encoding it would add a second generation
+    default). An input that is already an upright JPEG with a long edge of 1440px
+    or less is passed through **untouched** — re-encoding it would add a second generation
     of JPEG loss for nothing. So sending the expected shape is both the most
     accurate and the cheapest option.
 
@@ -112,10 +114,10 @@ paths:
                   format: binary
                   description: |
                     The image to check. **Expected: JPEG, long edge 1440px,
-                    quality 80, EXIF orientation already applied** — matching the
-                    preview derivative Immich indexed. Other formats and sizes
-                    are normalized server-side; HEIC and camera RAW are not
-                    decodable and return 415.
+                    quality 80, upright** — close to the preview derivative Immich
+                    indexed. Other formats and sizes are normalized server-side,
+                    and JPEGs are rotated by their EXIF orientation; HEIC and
+                    camera RAW are not decodable and return 415.
             encoding:
               file:
                 contentType: image/jpeg, image/png, image/webp, image/tiff, image/gif

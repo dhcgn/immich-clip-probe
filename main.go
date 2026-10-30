@@ -130,7 +130,8 @@ func loadConfig() (*config, error) {
 	if c.defaultLimit, err = envInt("DEFAULT_LIMIT", 10); err != nil {
 		return nil, err
 	}
-	if c.vchordProbes, err = envInt("VCHORD_PROBES", 1); err != nil {
+	// 0 = what Immich itself searches with, derived from clip_index (probesFor).
+	if c.vchordProbes, err = envInt("VCHORD_PROBES", 0); err != nil {
 		return nil, err
 	}
 	maxUpload, err := envInt("MAX_UPLOAD_BYTES", 50<<20)

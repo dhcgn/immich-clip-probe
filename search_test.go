@@ -229,6 +229,62 @@ func TestSearchOrderAndSimilarity(t *testing.T) {
 	}
 }
 
+func TestProbesFor(t *testing.T) {
+	for _, tc := range []struct {
+		def  string
+		want int
+	}{
+		{"", 1}, // no index yet
+		{`CREATE INDEX clip_index ON public.smart_search USING hnsw (embedding vector_cosine_ops)`, 1},
+		{"CREATE INDEX clip_index ON public.smart_search USING vchordrq (embedding vector_cosine_ops) WITH (options='\nresidual_quantization = false\n[build.internal]\nlists = [1]\n')", 1},
+		{"... [build.internal]\nlists = [256]\nspherical_centroids = true ...", 32}, // ~166k rows in Immich
+		{"... lists = [12] ...", 2}, // rounds up, as Math.ceil does
+	} {
+		if got := probesFor(tc.def); got != tc.want {
+			t.Errorf("probesFor(%q) = %d, want %d", tc.def, got, tc.want)
+		}
+	}
+}
+
+// Against the real extension: the definition Postgres reports for a vchordrq
+// index must carry the list count, and a fresh connection must search with
+// Immich's probe count rather than the database default of 1.
+func TestNewStoreSetsProbesFromIndex(t *testing.T) {
+	st, owners := testStore(t)
+	ctx := t.Context()
+	for _, stmt := range []string{
+		`CREATE EXTENSION IF NOT EXISTS vchord CASCADE`,
+		`DROP INDEX clip_index`,
+		`CREATE INDEX clip_index ON smart_search USING vchordrq (embedding vector_cosine_ops) WITH (options = $$
+[build.internal]
+lists = [16]
+$$)`,
+	} {
+		if _, err := st.pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", strings.SplitN(stmt, "\n", 2)[0], err)
+		}
+	}
+
+	for _, tc := range []struct {
+		configured int
+		want       string
+	}{{0, "2"}, {5, "5"}} {
+		s, err := newStore(ctx, &config{dbURL: os.Getenv("TEST_DB_URL"), ownerIDs: owners[:1], vchordProbes: tc.configured})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		err = s.pool.QueryRow(ctx, `SHOW vchordrq.probes`).Scan(&got)
+		s.close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("VCHORD_PROBES=%d: vchordrq.probes = %s, want %s", tc.configured, got, tc.want)
+		}
+	}
+}
+
 func TestDimsReportsStoredWidth(t *testing.T) {
 	st, _ := testStore(t)
 	got, err := st.dims(t.Context())

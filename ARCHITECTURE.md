@@ -248,12 +248,25 @@ Four things in there are load-bearing:
 - **`ownerId` scoping** limits the blast radius of the database credential. See
   [§7](#7-security-model).
 
-`SET LOCAL vchordrq.probes` is what Immich issues before the same query. Immich
-also applies `ALTER DATABASE … SET vchordrq.probes = 1`
-([`database.repository.ts`][probes]), so your connection inherits a sane default
-and the `SET LOCAL` only matters if you raise `VCHORD_PROBES` for recall. On a
-pgvector-HNSW deployment the GUC is `hnsw.ef_search` instead — detect which
-extension is installed at startup, or let the `SET` fail softly.
+`SET LOCAL vchordrq.probes` is what Immich issues before the same query
+([`search.repository.ts`][searchprobes]), and the value is **not** the database
+default. Immich does apply `ALTER DATABASE … SET vchordrq.probes = 1`
+([`database.repository.ts`][probes]), but every smart search overrides it with
+[`targetProbeCount`][probecount] — an eighth of the index's IVF lists. Lists
+grow with the table ([`targetListCount`][listcount]): one list below 128k rows,
+so one probe is an exact search, but 256 lists at ~166k rows. A connection that
+inherits the default then scans 1/256 of the index, and the true match is
+silently missing from the result — measured on a production library, roughly one
+asset in five could not find itself from its own preview.
+
+So the service sets the probe count per connection: with `VCHORD_PROBES` unset
+(or `0`) it reads `lists = [N]` from `clip_index`'s definition in `pg_indexes`,
+the same pattern Immich's `reindexVectorsIfNeeded` uses, and probes
+`ceil(N/8)` — the recall Immich's own search gets. A positive `VCHORD_PROBES`
+overrides it. Pooled connections are recycled hourly, which picks up an index
+Immich rebuilt with more lists. The effective value is logged at startup. On a
+pgvector-HNSW deployment the GUC is `hnsw.ef_search` instead — the `SET` fails
+softly there.
 
 The stock compose pins `ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0`,
 so VectorChord is the relevant path.
@@ -265,8 +278,9 @@ This is the subtlety that decides whether the numbers mean anything.
 Immich does **not** embed the original file.
 [`SmartInfoService.handleEncodeClip`][encode] calls `getForClipEncoding(id)`,
 which [selects `withFiles(eb, AssetFileType.Preview)`][previewsel] — the *preview*
-derivative. With [Immich's defaults][previewcfg] that is JPEG, long edge 1440,
-quality 80, P3 colorspace.
+derivative. With [Immich's defaults][previewcfg] that is JPEG, quality 80, P3
+colorspace, size 1440 applied to the **short** edge ([`fit: 'outside'`][previewfit],
+so a 4000×3000 photo becomes 1920×1440), with EXIF orientation applied first.
 
 So every vector in `smart_search` is the embedding of a 1440px q80 JPEG. Feed the
 ML container a 48-megapixel original and you get the embedding of a different
@@ -292,26 +306,37 @@ Hence two things:
 2. **The server normalizes anything else** when `PREVIEW_PARITY=true` (default) —
    a handful of lines with `image/jpeg` plus `golang.org/x/image/draw`.
 
-The pass-through rule matters: an input that is **already JPEG with a long edge
-≤ 1440 is not touched**. Re-encoding it would add a second generation of JPEG loss
-for no benefit. `query.normalized` in the response reports which path was taken,
-so a surprising distance can be diagnosed from the payload alone.
+The pass-through rule matters: an input that is **already an upright JPEG with a
+long edge ≤ 1440 is not touched**. Re-encoding it would add a second generation of
+JPEG loss for no benefit. `query.normalized` in the response reports which path
+was taken, so a surprising distance can be diagnosed from the payload alone.
+
+**Long edge, not Immich's short edge, on purpose.** Matching Immich's size
+(short edge 1440) was measured and lost: on 12 freshly embedded photos, rendered
+both ways with orientation applied, the long-edge rendering averaged a distance
+of 0.0065 to its own asset and the short-edge one 0.0084, with Immich's own
+preview at 0.0055. The resampler differs from libvips' lanczos3 either way, so
+matching the size alone does not buy parity; re-measure before changing it.
 
 <!-- ponytail: parity uses draw.CatmullRom, not Immich's libvips lanczos3 + P3
      colorspace. Residual bias is well under the threshold in practice; if
      calibration ever shows drift, shell out to vips or embed both renderings
      and take the min. -->
 
-Two deliberate omissions:
+**EXIF orientation is applied to JPEG input.** CLIP is not rotation-invariant,
+and Immich's preview generator [rotates before resizing][previewfit]. An
+unrotated phone photo measured 0.05–0.11 from its own asset — far outside the
+threshold — and 0.0035–0.02 once rotated. `image.go` reads tag `0x0112` from
+the APP1 EXIF segment with a few lines of bounds-checked parsing rather than a
+dependency, and an upright JPEG is the only one passed through untouched. Other
+formats are not rotated; cameras and phones write orientation into JPEGs.
+
+One deliberate omission:
 
 - **No HEIC/RAW decoding.** Go's stdlib decodes JPEG, PNG, GIF and (via
   `x/image`) WEBP/TIFF. HEIC and camera RAW need cgo and libheif/libraw, which
   triples the image size and the build complexity. A clear `415` beats a fat
   container.
-- **No EXIF auto-rotation.** CLIP is not rotation-invariant, and Immich's preview
-  generator *does* apply orientation — so an unrotated query scores badly. The
-  OpenAPI spec pushes this onto the client (`magick -auto-orient`). This is the
-  one parity gap most likely to bite; if it does, apply orientation in step 3.
 
 ## 7. Security model
 
@@ -574,7 +599,10 @@ fixtures framework, no mocks package.
 | `smart_search` table, `vector(512)`, cosine HNSW index | [`smart-search.table.ts`][sstable] |
 | Duplicate search: CTE + `<=>` + outer distance filter | [`duplicate.repository.sql:146-177`][dupsql] |
 | Smart search uses the same operator | [`search.repository.ts:326-327`][searchrepo] |
-| `vchordrq.probes = 1` | [`database.repository.ts:118-119`][probes] |
+| `vchordrq.probes = 1` as the database default only | [`database.repository.ts:118-119`][probes] |
+| Smart search sets `probes[VectorIndex.Clip]` per query | [`search.repository.ts:572`][searchprobes] |
+| Probes = `ceil(lists / 8)`; lists = 1 below 128k rows, then grow | [`database.repository.ts:361-371`][listcount] |
+| Previews: orientation applied, size on the short edge (`fit: 'outside'`) | [`media.repository.ts:202-218`][previewfit] |
 | Immich embeds the **preview**, not the original | [`smart-info.service.ts:88-104`][encode] → [`asset-job.repository.ts:223-230`][previewsel] |
 | CLIP sees a 224×224 **centre crop**, shortest edge first | [`clip/visual.py:71-76`][cliptransform] → [`transforms.py:14-27`][transforms] |
 | Preview defaults: JPEG, 1440, q80, P3 | [`config.dto.ts:702-707`][previewcfg] |
@@ -602,6 +630,10 @@ fixtures framework, no mocks package.
 [dupsql]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/queries/duplicate.repository.sql#L146-L177
 [searchrepo]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/search.repository.ts#L326-L327
 [probes]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/database.repository.ts#L118-L119
+[listcount]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/database.repository.ts#L361-L371
+[probecount]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/database.repository.ts#L369-L371
+[searchprobes]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/search.repository.ts#L572
+[previewfit]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/media.repository.ts#L202-L218
 [encode]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/services/smart-info.service.ts#L88-L104
 [previewsel]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/asset-job.repository.ts#L223-L230
 [previewcfg]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/dtos/config.dto.ts#L702-L707

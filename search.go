@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -58,15 +60,29 @@ func newStore(ctx context.Context, cfg *config) (*store, error) {
 		return nil, fmt.Errorf("DB_URL: %w", err)
 	}
 
-	// Immich applies `ALTER DATABASE ... SET vchordrq.probes = 1`, so this is
-	// usually redundant; it matters when VCHORD_PROBES is raised for recall.
+	// The database default Immich applies (`vchordrq.probes = 1`) is not what
+	// Immich searches with: every smart search first issues `SET LOCAL
+	// vchordrq.probes` with probesFor(clip_index). Inheriting the default instead
+	// scans one list of up to hundreds, and the true match is silently missed.
+	// Read per connection, so an index Immich rebuilds with more lists is picked
+	// up when the pool recycles connections (pgxpool: hourly).
+	//
 	// A two-part GUC name is always settable, so an unknown one is harmless on a
 	// pgvector-HNSW deployment -- but never fail a connection over it.
-	probes := cfg.vchordProbes
 	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		probes := cfg.vchordProbes
+		if probes <= 0 {
+			// No row (no index yet) leaves def empty, which probesFor reads as one list.
+			var def string
+			if err := conn.QueryRow(ctx, `SELECT indexdef FROM pg_indexes WHERE indexname = 'clip_index'`).Scan(&def); err != nil && err != pgx.ErrNoRows {
+				slog.Debug("could not read clip_index definition", "err", err)
+			}
+			probes = probesFor(def)
+		}
 		if _, err := conn.Exec(ctx, fmt.Sprintf("SET vchordrq.probes = %d", probes)); err != nil {
 			slog.Debug("could not set vchordrq.probes", "err", err)
 		}
+		slog.Debug("connected", "vchordrq.probes", probes)
 		return nil
 	}
 
@@ -81,11 +97,32 @@ func newStore(ctx context.Context, cfg *config) (*store, error) {
 		pool.Close()
 		return nil, err
 	}
+	// What the session actually got: the first thing to check when recall is off.
+	var probes string
+	if err := pool.QueryRow(pingCtx, `SHOW vchordrq.probes`).Scan(&probes); err == nil {
+		slog.Info("vector search", "vchordrq.probes", probes)
+	}
 
 	return &store{pool: pool, ownerIDs: cfg.ownerIDs}, nil
 }
 
 func (s *store) close() { s.pool.Close() }
+
+// listsRe finds the IVF list count in a vchordrq index definition; it is the
+// same pattern Immich's reindexVectorsIfNeeded uses.
+var listsRe = regexp.MustCompile(`lists = \[(\d+)`)
+
+// probesFor mirrors Immich's targetProbeCount: probe an eighth of the lists.
+// A definition without lists (HNSW, or no index) counts as one list, as in
+// Immich.
+func probesFor(indexdef string) int {
+	m := listsRe.FindStringSubmatch(indexdef)
+	if m == nil {
+		return 1
+	}
+	lists, _ := strconv.Atoi(m[1])
+	return max(1, (lists+7)/8)
+}
 
 // search returns the assets nearest to embedding, ascending by cosine distance.
 // Pass maxCosineDistance as maxDist to disable the threshold.
