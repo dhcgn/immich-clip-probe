@@ -23,6 +23,10 @@
     results.reduce((c, r) => ((c[r.status] = (c[r.status] ?? 0) + 1), c), {} as Record<string, number>),
   );
 
+  // A miss this close is usually an asset embedded before Immich 3.3.0, which
+  // changed how embeddings are computed; see the README's Limitations.
+  let nearMiss = $derived(results.some((r) => r.status === Status.StatusNoMatch && r.distance != null && r.distance < 0.06));
+
   // The status bar: green works, red is broken, grey is not set up (or still checking).
   type Light = 'ok' | 'bad' | 'off';
   let lights = $derived.by((): [string, Light, string][] => {
@@ -184,6 +188,15 @@
         <span class={counts[status] ? status : 'muted'}>{counts[status] ?? 0} {text}</span>
       {/each}
     </p>
+    {#if nearMiss}
+      <p class="note">
+        Close, but over the threshold? Assets added to Immich before an upgrade to <strong>Immich 3.3.0</strong>
+        keep embeddings from Immich's old internal computation. Those sit about 0.02–0.05 from their own photo.
+        Run <strong>Administration → Jobs → Smart Search → All</strong> once in Immich to re-embed them.
+        The job first deletes every stored vector, so check again only after it has finished, when the indexed
+        count in the status bar is back to where it was.
+      </p>
+    {/if}
     <table>
       <thead>
         <tr><th></th><th>Distance</th><th>Local file</th><th>Nearest in Immich</th><th></th></tr>
@@ -357,6 +370,12 @@
   .summary {
     display: flex;
     gap: 1.25rem;
+  }
+  .note {
+    padding: 0.6rem 0.9rem;
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    background: var(--stripe);
   }
   .match {
     color: var(--good);

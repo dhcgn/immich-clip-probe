@@ -522,6 +522,11 @@ On a live library, with 70 originals checked against their own assets:
 - ImageMagick came closer for 28 of 36 JPEGs.
 - It was the only way to check the 15 HEIC, 11 RAW and 7 JXL files at all.
 
+**Photos you know are in Immich show "no match" at 0.02–0.05?** They were
+probably added before your Immich was upgraded to 3.3.0. Run Smart Search
+"All" once, and check again only after it has finished
+([Limitations](#limitations)).
+
 The tools always ask for the nearest matches with no cut-off, and decide
 "match" against `max_distance` locally. So a distance just past the threshold is
 still shown, and changing the threshold needs no new upload.
@@ -557,6 +562,24 @@ git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0
 
 ## Limitations
 
+- **Upgraded to Immich 3.3.0 or later? Run Smart Search "All" once.** Version
+  3.3.0 changed how Immich computes embeddings internally: previews are now
+  resampled in linear light, and the ML container got a new inference engine.
+  Assets added *before* the upgrade keep vectors from the old pipeline. Their own
+  photo, embedded today, sits about 0.02–0.05 away from that stored vector, so it
+  never gets under `max_distance` 0.01.
+
+  On one library, assets uploaded before the upgrade measured 0.017–0.042 from
+  their own vector, and assets uploaded after it 0.002–0.009. The fix is in
+  Immich: **Administration → Jobs → Smart Search → All** re-embeds every asset
+  with the current pipeline. "Missing" is not enough, since those assets already
+  have a vector.
+
+  "All" starts by deleting every stored vector, then re-embeds asset by asset.
+  Until it finishes, a photo that has not been re-embedded yet has no vector at
+  all and cannot be found. Wait until `indexedAssets` in `/healthz` (the desktop
+  app's status bar shows it) is back to its old count before you trust a "no
+  match".
 - **Only indexed assets are searchable.** An asset with no `smart_search` row
   (Smart Search job never ran, or was disabled) is invisible here. `indexedAssets`
   in `/healthz` makes that visible.
