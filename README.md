@@ -8,6 +8,11 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/dhcgn/immich-clip-probe)](go.mod)
 [![license](https://img.shields.io/github/license/dhcgn/immich-clip-probe)](LICENSE)
 
+
+<img src="docs/screenshot_clip_check_desktop.png" width="400" alt="Clip Check desktop: green status lights for clip-probe, Immich and ImageMagick above a table of 7 checked photos, 2 match and 5 no match, each with the local and the nearest Immich thumbnail">
+
+*Screenshot of Clip Check desktop interface*
+
 > [!WARNING]
 > **This repository is under active development. Do not expect anything to work.**
 >
