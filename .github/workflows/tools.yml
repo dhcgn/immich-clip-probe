@@ -1,0 +1,161 @@
+name: tools
+
+# The clip-check CLI and the Clip Check desktop app (tools/), released apart
+# from the server. A tools/v* tag builds everything and cuts a GitHub Release;
+# the tag prefix is also what lets `go install …/tools/clip-check@v0.1.0`
+# resolve the nested module:
+#
+#   git tag -a tools/v0.1.0 -m "tools/v0.1.0" && git push origin tools/v0.1.0
+#
+# workflow_dispatch builds every artifact without publishing anything.
+on:
+  push:
+    branches: [main]
+    tags: ['tools/v*']
+    paths: ['tools/**', '.github/workflows/tools.yml'] # not applied to tag pushes
+  pull_request:
+    paths: ['tools/**', '.github/workflows/tools.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # tools/v0.1.0 → v0.1.0; anything that is not a release tag is a dev build.
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/tools/v') && github.ref_name || format('dev-{0}', github.sha) }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: tools/go.mod
+          cache-dependency-path: tools/go.sum
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      # The ImageMagick render tests skip here; they need magick on the runner.
+      - run: go test -race ./...
+
+  cli:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: tools/go.mod
+          cache-dependency-path: tools/go.sum
+      - name: Build for every platform
+        run: |
+          v="${VERSION#tools/}"
+          for t in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${t%/*}" arch="${t#*/}" ext=""
+            [ "$os" = windows ] && ext=.exe
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-s -w -X main.version=$v" -o "../dist/clip-check-$os-$arch$ext" ./clip-check
+          done
+          ls -l ../dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clip-check-cli
+          path: dist/*
+          if-no-files-found: error
+
+  desktop:
+    name: desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bin: clip-check-desktop.exe
+            asset: clip-check-desktop-windows-amd64.exe
+          - os: ubuntu-latest
+            bin: clip-check-desktop
+            asset: clip-check-desktop-linux-amd64
+    defaults:
+      run:
+        shell: bash
+        working-directory: tools/desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: tools/desktop/go.mod
+          cache-dependency-path: tools/desktop/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tools/desktop/frontend/package-lock.json
+
+      # Wails v3.0.0 asks pkg-config for gtk4 and webkitgtk-6.0.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Install Task and the Wails CLI
+        run: |
+          go install github.com/go-task/task/v3/cmd/task@latest
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
+
+      - run: task build VERSION="${VERSION#tools/}"
+
+      # The build regenerates the bindings; a diff means the committed ones are stale.
+      - name: Check the committed bindings and the frontend
+        if: runner.os == 'Linux'
+        run: |
+          git diff --exit-code -- frontend/bindings \
+            || { echo "::error::frontend/bindings is stale; run 'task build' in tools/desktop and commit it"; exit 1; }
+          cd frontend && npm run check
+
+      - name: Stage the release asset
+        run: mkdir -p ../../dist && cp "bin/${{ matrix.bin }}" "../../dist/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clip-check-desktop-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [test, cli, desktop]
+    if: startsWith(github.ref, 'refs/tags/tools/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the previous tools tag bounds the generated notes
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          (cd dist && sha256sum * > SHA256SUMS)
+          # Server releases (v*) share this repo, so the notes start at the last
+          # tools tag rather than whichever release GitHub would pick.
+          prev=$(git tag --list 'tools/v*' --sort=-v:refname | grep -vxF "$TAG" | head -n1)
+          # --latest=false keeps the server release as the repo's "Latest".
+          gh release create "$TAG" dist/* \
+            --title "clip-check ${TAG#tools/}" \
+            --latest=false \
+            --generate-notes ${prev:+--notes-start-tag "$prev"} \
+            --notes "The clip-check CLI and the Clip Check desktop app; see the README section \"Tools: clip-check\".
+          The Linux desktop binary needs GTK 4 and WebKitGTK 6.0 at run time (Debian/Ubuntu: libgtk-4-1 libwebkitgtk-6.0-4).
+
+          This project is under active development and is not considered stable."

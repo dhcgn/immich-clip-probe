@@ -338,6 +338,24 @@ One deliberate omission:
   triples the image size and the build complexity. A clear `415` beats a fat
   container.
 
+**The clients render closer than this service can.** Since Immich 3.3.0 the
+preview is [resampled in linear light][linearlight] (sharp in scRGB, lanczos3),
+then saved as quality 80 with 4:4:4 chroma; the CatmullRom resample here works
+in gamma space. The `clip-check` tools (`tools/check/render.go`) close that gap
+on the client, with ImageMagick where it is installed:
+
+```
+magick in[0] -auto-orient -colorspace RGB -filter Lanczos -resize 1440x1440> -colorspace sRGB -quality 80 -sampling-factor 4:4:4 jpg:-
+```
+
+That is Immich's pipeline except for the size, which stays on the long edge so
+this service passes the upload through untouched instead of resampling it a
+second time. It also decodes the HEIC, RAW, AVIF and JXL this service refuses.
+Measured on originals pulled from a live library and checked against their own
+assets, it was closer than server-side normalization for 28 of 36 JPEGs (mean
+distance 0.0260 vs 0.0288). Without ImageMagick the clients send what this
+service decodes as-is and skip the rest.
+
 ## 7. Security model
 
 The service holds two things a caller must never be able to borrow: a database
@@ -521,7 +539,12 @@ after one breaks something.
 ├── Dockerfile
 ├── docker-compose.example.yml      # Immich's compose + clip-probe  (option A)
 ├── docker-compose.standalone.yml   # own stack, joins immich_default (option B)
-└── .github/workflows/release.yml   # test, push images, and cut a release on a v* tag
+├── tools/                          # clients of /v1/similar, own Go module, not in the image
+│   ├── check/                      # shared: config, client, ImageMagick rendering (§6), worker pool
+│   ├── clip-check/                 # the CLI (urfave/cli, viper)
+│   └── desktop/                    # Clip Check, Wails v3 + Svelte, its own go.mod
+├── .github/workflows/release.yml   # test, push images, and cut a release on a v* tag
+└── .github/workflows/tools.yml     # test and build the tools, release them on a tools/v* tag
 ```
 
 Flat package, no `internal/`, no `cmd/`. Five Go files is not a codebase that
@@ -533,7 +556,9 @@ plus `github.com/getkin/kin-openapi` for the contract test only — it is not
 reachable from any non-test file, so it is absent from the binary. That is the
 whole list. Go 1.27's `net/http` routing (`mux.HandleFunc("POST /v1/similar", …)`),
 `log/slog`, `mime/multipart`, `crypto/subtle` and `encoding/json` cover everything
-else — no router, no logging framework, no config library, no ORM.
+else — no router, no logging framework, no config library, no ORM. The clients
+under `tools/` are separate modules, so their dependencies (viper, urfave/cli,
+Wails) never reach this `go.mod` or the image.
 
 **Dockerfile:** `golang:1.27-alpine` build stage → `gcr.io/distroless/static`. A
 pure-Go binary with no cgo, so the runtime image is the binary plus CA certs.
@@ -637,6 +662,7 @@ fixtures framework, no mocks package.
 [encode]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/services/smart-info.service.ts#L88-L104
 [previewsel]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/repositories/asset-job.repository.ts#L223-L230
 [previewcfg]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/dtos/config.dto.ts#L702-L707
+[linearlight]: https://github.com/immich-app/immich/commit/c0a9146023cf225bed3aa55e1eff6ed9a0f5d43a
 [clipcfg]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/dtos/config.dto.ts#L627-L634
 [visibility]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/enum.ts#L1178-L1187
 [usertbl]: https://github.com/immich-app/immich/blob/202015ed95dc2aed6c03fc571067d18a1b46bf98/server/src/schema/tables/user.table.ts#L20
