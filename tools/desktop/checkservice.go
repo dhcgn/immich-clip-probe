@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/dhcgn/immich-clip-probe/tools/check"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -24,7 +25,8 @@ type ServerInfo struct {
 	ConfigPath string        `json:"configPath"`
 	Magick     string        `json:"magick"` // empty: not found, or switched off
 	Health     *check.Health `json:"health,omitempty"`
-	Error      string        `json:"error,omitempty"`
+	Error      string        `json:"error,omitempty"` // settings or clip-probe
+	Immich     *ImmichInfo   `json:"immich,omitempty"`
 }
 
 func settings() (check.Config, error) {
@@ -47,13 +49,19 @@ func (s *CheckService) Info(ctx context.Context) ServerInfo {
 		return info
 	}
 	info.Magick = check.FindMagick(cfg.Magick)
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	if cfg.ImmichURL != "" && cfg.ImmichKey != "" {
+		wg.Go(func() { info.Immich = immichStatus(ctx, cfg) })
+	}
 	if cfg.Server == "" {
 		info.Error = "no server configured"
-		return info
-	}
-	if info.Health, err = check.NewClient(cfg.Server, cfg.Token).Health(ctx); err != nil {
+	} else if info.Health, err = check.NewClient(cfg.Server, cfg.Token).Health(ctx); err != nil {
 		info.Error = err.Error()
 	}
+	wg.Wait()
 	return info
 }
 

@@ -23,7 +23,32 @@
     results.reduce((c, r) => ((c[r.status] = (c[r.status] ?? 0) + 1), c), {} as Record<string, number>),
   );
 
+  // The status bar: green works, red is broken, grey is not set up (or still checking).
+  type Light = 'ok' | 'bad' | 'off';
+  let lights = $derived.by((): [string, Light, string][] => {
+    if (!info) return [['clip-probe', 'off', 'checking…'], ['Immich', 'off', 'checking…']];
+    const h = info.health;
+    const probe: [string, Light, string] = h
+      ? h.status === 'ok'
+        ? ['clip-probe', 'ok', `${h.model} · ${h.indexedAssets.toLocaleString()} assets indexed`]
+        : ['clip-probe', 'bad', h.message || `db ${h.db}, ml ${h.ml}`]
+      : info.error === 'no server configured'
+        ? ['clip-probe', 'off', 'not configured']
+        : ['clip-probe', 'bad', info.error ?? ''];
+    const im = info.immich;
+    const immich: [string, Light, string] = !im
+      ? ['Immich', 'off', 'not configured (optional, for thumbnails)']
+      : im.error
+        ? ['Immich', 'bad', im.error]
+        : ['Immich', 'ok', im.owner || `key “${im.key}”`];
+    const magick: [string, Light, string] = info.magick
+      ? ['ImageMagick', 'ok', 'found']
+      : ['ImageMagick', 'off', 'not found: HEIC, RAW, AVIF and JXL are skipped'];
+    return [probe, immich, magick];
+  });
+
   async function refresh() {
+    info = null;
     info = await CheckService.Info();
     cfg = await CheckService.Settings();
     thumbs = !!(cfg.immichUrl && cfg.immichApiKey);
@@ -100,22 +125,11 @@
   <header>
     <h1>Clip Check</h1>
     <div class="status">
-      {#if !info}
-        connecting…
-      {:else if info.health}
-        <span class:bad={info.health.status !== 'ok'}>
-          {info.health.status === 'ok' ? '●' : '▲'} {info.health.model} · {info.health.indexedAssets.toLocaleString()} assets indexed
-        </span>
-        {#if info.health.message}<span class="bad">{info.health.message}</span>{/if}
-      {:else}
-        <span class="bad">▲ {info.error}</span>
-      {/if}
-      {#if info}
-        <span class:bad={!info.magick} title={info.magick || 'HEIC, RAW, AVIF and JXL need ImageMagick'}>
-          ImageMagick {info.magick ? 'found' : 'not found'}
-        </span>
-      {/if}
+      {#each lights as [name, light, text]}
+        <span class="svc" title={text}><i class="dot {light}"></i>{name} <span class="muted">{text}</span></span>
+      {/each}
     </div>
+    <button class="link" onclick={refresh} title="Check the connections again">Refresh</button>
     <button class="link" onclick={() => (editing = !editing)}>Settings</button>
   </header>
 
@@ -233,9 +247,34 @@
   .status {
     flex: 1;
     display: flex;
-    gap: 1.25rem;
+    gap: 1.5rem;
     flex-wrap: wrap;
-    color: var(--muted);
+    min-width: 0;
+  }
+  .svc {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    max-width: 26rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dot {
+    flex: none;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--muted);
+    opacity: 0.6;
+  }
+  .dot.ok {
+    background: var(--good);
+    opacity: 1;
+  }
+  .dot.bad {
+    background: var(--bad);
+    opacity: 1;
   }
   .bad,
   .error {

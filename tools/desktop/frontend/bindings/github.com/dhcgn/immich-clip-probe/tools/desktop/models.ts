@@ -6,6 +6,22 @@
 import * as check$0 from "../check/models.js";
 
 /**
+ * ImmichInfo is the Immich half of the status bar. Nil when no Immich is set.
+ */
+export interface ImmichInfo {
+    /**
+     * the API key's name in Immich
+     */
+    "key"?: string;
+
+    /**
+     * "Name <email>", if the key may read its user
+     */
+    "owner"?: string;
+    "error"?: string;
+}
+
+/**
  * ServerInfo is what the status bar shows.
  */
 export interface ServerInfo {
@@ -17,5 +33,10 @@ export interface ServerInfo {
      */
     "magick": string;
     "health"?: check$0.Health | null;
+
+    /**
+     * settings or clip-probe
+     */
     "error"?: string;
+    "immich"?: ImmichInfo | null;
 }
