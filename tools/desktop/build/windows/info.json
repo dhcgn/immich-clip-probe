@@ -6,7 +6,7 @@
 		"0409": {
 			"ProductVersion": "0.0.1",
 			"CompanyName": "dhcgn",
-			"FileDescription": "Check whether local images are already in Immich",
+			"FileDescription": "Clip Check",
 			"LegalCopyright": "(c) 2026 dhcgn",
 			"ProductName": "Clip Check",
 			"Comments": "https://github.com/dhcgn/immich-clip-probe"

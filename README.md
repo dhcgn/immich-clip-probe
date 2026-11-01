@@ -475,8 +475,10 @@ SKIP          2019/IMG_5524.heic  (needs ImageMagick to decode .heic)
 ```
 
 The desktop app does the same with **Add files**, **Add folder** or a drop onto
-the window, shows the results as a table with an **Open in Immich** link per row,
-and has a settings panel.
+the window. It shows the results as a table: a thumbnail of the local file next
+to the matching Immich asset's thumbnail, with an **Open in Immich** link per
+row. It also has a settings panel. The Immich thumbnails are optional and need
+the Immich URL and an API key with the `asset.view` permission.
 
 **Install.** Binaries are on the [releases page](https://github.com/dhcgn/immich-clip-probe/releases)
 under `tools/v*` tags: `clip-check-<os>-<arch>` for Windows, Linux and macOS,
@@ -498,7 +500,9 @@ token: <API_TOKEN>
 max_distance: 0.01 # the nearest asset counts as a match at or below this
 limit: 1           # nearest assets listed per file
 workers: 4         # files checked in parallel
-magick: ""         # ImageMagick binary; empty finds it, "off" never uses it
+magick: ""         # path to magick.exe; empty finds it, "off" never uses it
+immich_url: ""     # optional, desktop only: Immich thumbnails of the matches
+immich_api_key: "" # with immich_url; asset.view permission is enough
 ```
 
 Every key also works as an environment variable (`CLIP_CHECK_TOKEN`,

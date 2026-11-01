@@ -6,6 +6,7 @@
 
   let info: ServerInfo | null = $state(null);
   let cfg: Config | null = $state(null);
+  let thumbs = $state(false); // Immich thumbnails, as saved rather than as being typed
   let editing = $state(false);
   let results: Result[] = $state([]);
   let total = $state(0);
@@ -25,11 +26,26 @@
   async function refresh() {
     info = await CheckService.Info();
     cfg = await CheckService.Settings();
+    thumbs = !!(cfg.immichUrl && cfg.immichApiKey);
     if (info.error === 'no server configured') editing = true;
   }
 
+  async function browseMagick() {
+    const p = await CheckService.PickMagick();
+    if (p && cfg) cfg.magick = p;
+  }
+
+  // A missing thumbnail keeps its space, so the rows stay aligned.
+  function hide(e: Event) {
+    (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+  }
+
   async function start(paths: string[] | null) {
-    if (!paths?.length || running) return;
+    if (!paths?.length) return;
+    if (running) {
+      message = 'A check is still running; wait for it or cancel it first.';
+      return;
+    }
     message = '';
     try {
       total = await CheckService.Check(paths);
@@ -105,15 +121,31 @@
 
   {#if editing && cfg}
     <form class="settings" onsubmit={save}>
-      <label>clip-probe server <input bind:value={cfg.server} placeholder="https://clip-probe.example.com" required /></label>
+      <h2>clip-probe</h2>
+      <label>Server URL <input bind:value={cfg.server} placeholder="https://clip-probe.example.com" required /></label>
       <label>API token <input type="password" bind:value={cfg.token} required /></label>
       <label>Match up to distance <input type="number" step="0.001" min="0" max="2" bind:value={cfg.maxDistance} /></label>
       <label>Matches per file <input type="number" min="1" max="100" bind:value={cfg.limit} /></label>
       <label>Files in parallel <input type="number" min="1" max="32" bind:value={cfg.workers} /></label>
-      <label>ImageMagick <input bind:value={cfg.magick} placeholder="find automatically, or off" /></label>
+
+      <h2>Immich thumbnails <span class="muted">optional</span></h2>
+      <label>Immich URL <input bind:value={cfg.immichUrl} placeholder="https://immich.example.com" /></label>
+      <label>Immich API key <input type="password" bind:value={cfg.immichApiKey} /></label>
+      <p class="hint">With both set, every result also shows the thumbnail of the matching Immich asset. A key with only the <code>asset.view</code> permission is enough.</p>
+
+      <h2>ImageMagick <span class="muted">optional</span></h2>
+      <label class="wide">
+        Path to the program (magick.exe)
+        <span class="pick">
+          <input bind:value={cfg.magick} placeholder={info?.magick ? `automatic: ${info.magick}` : 'automatic: not found'} />
+          <button type="button" onclick={browseMagick}>Browse…</button>
+        </span>
+      </label>
+      <p class="hint">Leave it empty to find ImageMagick automatically, or type <code>off</code> to never use it. With ImageMagick every image is rendered the way Immich renders it, which gives the closest distances, and HEIC, RAW, AVIF and JXL can be checked at all.</p>
+
       <div class="row">
         <button type="submit">Save</button>
-        <span class="muted">{info?.configPath}</span>
+        <span class="muted">saved to {info?.configPath}</span>
       </div>
     </form>
   {/if}
@@ -140,7 +172,7 @@
     </p>
     <table>
       <thead>
-        <tr><th></th><th>Distance</th><th>File</th><th>Nearest in Immich</th><th></th></tr>
+        <tr><th></th><th>Distance</th><th>Local file</th><th>Nearest in Immich</th><th></th></tr>
       </thead>
       <tbody>
         {#each results as r (r.path)}
@@ -148,14 +180,24 @@
           <tr>
             <td><span class="badge {r.status}">{label[r.status]}</span></td>
             <td class="num">{r.distance != null ? r.distance.toFixed(4) : ''}</td>
-            <td title={r.path}>{name(r.path)}</td>
+            <td title={r.path}>
+              <div class="file">
+                <img class="thumb" src={`/thumb/local?path=${encodeURIComponent(r.path)}`} alt="" loading="lazy" onerror={hide} />
+                <span>{name(r.path)}</span>
+              </div>
+            </td>
             <td>
-              {#if m}
-                {m.originalFileName || m.assetId}
-                {#if m.localDateTime}<span class="muted">{m.localDateTime.slice(0, 10)}</span>{/if}
-              {:else}
-                <span class="muted">{r.error ?? ''}</span>
-              {/if}
+              <div class="file">
+                {#if m}
+                  {#if thumbs}<img class="thumb" src={`/thumb/asset/${m.assetId}`} alt="" loading="lazy" onerror={hide} />{/if}
+                  <span>
+                    {m.originalFileName || m.assetId}
+                    {#if m.localDateTime}<br /><span class="muted">{m.localDateTime.slice(0, 10)}</span>{/if}
+                  </span>
+                {:else}
+                  <span class="muted">{r.error ?? ''}</span>
+                {/if}
+              </div>
             </td>
             <td>
               {#if m?.links?.web}
@@ -217,11 +259,49 @@
     font-size: 0.85rem;
     color: var(--muted);
   }
+  .settings h2,
+  .settings .hint,
+  .settings .wide,
   .settings .row {
     grid-column: 1 / -1;
+  }
+  .settings h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0;
+  }
+  .settings h2:first-child {
+    margin-top: 0;
+  }
+  .settings .hint {
+    margin: -0.25rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .settings .pick {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .settings .pick input {
+    flex: 1;
+  }
+  .settings .row {
     display: flex;
     gap: 1rem;
     align-items: center;
+  }
+  .file {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .thumb {
+    width: 72px;
+    height: 72px;
+    flex: none;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--stripe);
   }
   .actions {
     display: flex;

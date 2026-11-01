@@ -51,6 +51,13 @@ export function Pick(folder: boolean): $CancellablePromise<string[] | null> {
     return $Call.ByID(847625064, folder);
 }
 
+/**
+ * PickMagick lets the user point at ImageMagick's program by hand.
+ */
+export function PickMagick(): $CancellablePromise<string> {
+    return $Call.ByID(753897504);
+}
+
 export function SaveSettings(c: check$0.Config): $CancellablePromise<void> {
     return $Call.ByID(477733893, c);
 }

@@ -25,11 +25,12 @@ func init() {
 }
 
 func main() {
+	svc := &CheckService{}
 	app := application.New(application.Options{
 		Name:        "Clip Check",
 		Description: "Check whether local images are already in Immich",
-		Services:    []application.Service{application.NewService(&CheckService{})},
-		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
+		Services:    []application.Service{application.NewService(svc)},
+		Assets:      application.AssetOptions{Handler: svc.handler(application.AssetFileServerFS(assets))},
 		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
 
