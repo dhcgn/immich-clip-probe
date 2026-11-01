@@ -1,0 +1,18 @@
+{
+    "path": "C:\\image.jpg",
+    "status": "match",
+    "distance": 0.0012026133661843241,
+    "matches": [
+        {
+            "assetId": "ac132d54-a585-4d41-b85e-8efa421b1843",
+            "originalFileName": "DSC_0532.JPG",
+            "localDateTime": "2026-05-01T11:06:20.12Z",
+            "type": "IMAGE",
+            "distance": 0.0012026133661843241,
+            "links": {
+                "web": "https://example.org/photos/ac132d54-a585-4d41-b85e-8efa421b1843"
+            }
+        }
+    ],
+    "renderedBy": "imagemagick"
+}

@@ -1,5 +1,13 @@
 # immich-clip-probe
 
+[![build](https://github.com/dhcgn/immich-clip-probe/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/dhcgn/immich-clip-probe/actions/workflows/release.yml)
+[![tools](https://github.com/dhcgn/immich-clip-probe/actions/workflows/tools.yml/badge.svg?branch=main)](https://github.com/dhcgn/immich-clip-probe/actions/workflows/tools.yml)
+[![server release](https://img.shields.io/github/v/release/dhcgn/immich-clip-probe?filter=v*&label=server)](https://github.com/dhcgn/immich-clip-probe/releases/latest)
+[![clip-check release](https://img.shields.io/github/v/release/dhcgn/immich-clip-probe?filter=tools/*&label=clip-check)](https://github.com/dhcgn/immich-clip-probe/releases?q=tools%2Fv&expanded=true)
+[![Docker image](https://img.shields.io/badge/image-ghcr.io%2Fdhcgn%2Fimmich--clip--probe-2496ED?logo=docker&logoColor=white)](https://github.com/dhcgn/immich-clip-probe/pkgs/container/immich-clip-probe)
+[![Go version](https://img.shields.io/github/go-mod/go-version/dhcgn/immich-clip-probe)](go.mod)
+[![license](https://img.shields.io/github/license/dhcgn/immich-clip-probe)](LICENSE)
+
 > [!WARNING]
 > **This repository is under active development. Do not expect anything to work.**
 >
@@ -474,11 +482,15 @@ SKIP          2019/IMG_5524.heic  (needs ImageMagick to decode .heic)
 3 files: 1 match, 1 no match, 1 skipped, 0 errors
 ```
 
+<img src="docs/screenshot_clip_check_cli.png" alt="clip-check in PowerShell: the help text, then one file checked as text (MATCH 0.0012) and as --json">
+
 The desktop app does the same with **Add files**, **Add folder** or a drop onto
 the window. It shows the results as a table: a thumbnail of the local file next
 to the matching Immich asset's thumbnail, with an **Open in Immich** link per
 row. It also has a settings panel. The Immich thumbnails are optional and need
 the Immich URL and an API key with the `asset.view` permission.
+
+<img src="docs/screenshot_clip_check_desktop.png" alt="Clip Check desktop: green status lights for clip-probe, Immich and ImageMagick above a table of 7 checked photos, 2 match and 5 no match, each with the local and the nearest Immich thumbnail">
 
 **Install.** Binaries are on the [releases page](https://github.com/dhcgn/immich-clip-probe/releases)
 under `tools/v*` tags: `clip-check-<os>-<arch>` for Windows, Linux and macOS,
@@ -505,11 +517,36 @@ immich_url: ""     # optional, desktop only: Immich thumbnails of the matches
 immich_api_key: "" # with immich_url; asset.view permission is enough
 ```
 
+<img src="docs/screenshot_clip_check_desktop_settings.png" alt="Clip Check desktop settings: clip-probe server URL, API token, match distance, matches per file and files in parallel; optional Immich URL and API key for thumbnails; optional ImageMagick path, found automatically">
+
 Every key also works as an environment variable (`CLIP_CHECK_TOKEN`,
 `CLIP_CHECK_MAX_DISTANCE`, …) and as a CLI flag (`--token`, `--max-distance`, …).
 A flag beats the environment, which beats the file. `clip-check health` shows
 the server's state and whether ImageMagick was found. `--json` prints one
 result per line. The exit code is 1 if any file failed.
+
+One `--json` result, formatted ([docs/clip_check_result.json](docs/clip_check_result.json)):
+
+```json
+{
+    "path": "C:\\image.jpg",
+    "status": "match",
+    "distance": 0.0012026133661843241,
+    "matches": [
+        {
+            "assetId": "ac132d54-a585-4d41-b85e-8efa421b1843",
+            "originalFileName": "DSC_0532.JPG",
+            "localDateTime": "2026-05-01T11:06:20.12Z",
+            "type": "IMAGE",
+            "distance": 0.0012026133661843241,
+            "links": {
+                "web": "https://example.org/photos/ac132d54-a585-4d41-b85e-8efa421b1843"
+            }
+        }
+    ],
+    "renderedBy": "imagemagick"
+}
+```
 
 **Install ImageMagick too.** When it is found (on `PATH`, or in `Program Files`
 on Windows), every image is rendered locally the way Immich renders the preview

@@ -10,5 +10,6 @@ apm_modules/
 *.jpg
 *.jpeg
 *.png
+!docs/*.png
 .env
 _run_prod.ps1
