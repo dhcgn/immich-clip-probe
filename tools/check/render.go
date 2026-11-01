@@ -70,7 +70,16 @@ func FindMagick(setting string) string {
 // Render returns path rendered by magickArgs as JPEG bytes. Only the first
 // frame of an animation or multi-page file is used, as Immich does.
 func Render(ctx context.Context, magick, path string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, magick, append([]string{path + "[0]"}, magickArgs...)...)
+	return runMagick(ctx, magick, path, magickArgs)
+}
+
+// Thumbnail returns a small upright JPEG of path, for display only.
+func Thumbnail(ctx context.Context, magick, path string) ([]byte, error) {
+	return runMagick(ctx, magick, path, []string{"-auto-orient", "-thumbnail", "320x320>", "-quality", "80", "jpg:-"})
+}
+
+func runMagick(ctx context.Context, magick, path string, args []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, magick, append([]string{path + "[0]"}, args...)...)
 	hideWindow(cmd)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut

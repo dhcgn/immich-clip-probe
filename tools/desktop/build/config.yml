@@ -8,7 +8,7 @@ info:
   companyName: "dhcgn" # The name of the company
   productName: "Clip Check" # The name of the application
   productIdentifier: "com.dhcgn.clipcheck" # The unique product identifier
-  description: "Check whether local images are already in Immich" # The application description
+  description: "Clip Check" # The application description; Windows shows it as the process name
   copyright: "(c) 2026 dhcgn" # Copyright text
   comments: "https://github.com/dhcgn/immich-clip-probe" # Comments
   version: "0.0.1" # The application version

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 
 	"github.com/dhcgn/immich-clip-probe/tools/check"
@@ -12,8 +13,9 @@ import (
 // CheckService is everything the page calls. Settings live in the same file
 // the CLI reads (check.DefaultPath).
 type CheckService struct {
-	mu     sync.Mutex
-	cancel context.CancelFunc // set while a check runs
+	mu      sync.Mutex
+	cancel  context.CancelFunc // set while a check runs
+	checked map[string]bool    // every file a check was started on: what /thumb/local may show
 }
 
 // ServerInfo is what the status bar shows.
@@ -69,6 +71,15 @@ func (s *CheckService) Pick(folder bool) ([]string, error) {
 	return d.SetTitle("Check images").PromptForMultipleSelection()
 }
 
+// PickMagick lets the user point at ImageMagick's program by hand.
+func (s *CheckService) PickMagick() (string, error) {
+	d := application.Get().Dialog.OpenFile().SetTitle("Select ImageMagick's program, magick.exe")
+	if runtime.GOOS == "windows" {
+		d = d.AddFilter("ImageMagick (magick.exe)", "magick.exe")
+	}
+	return d.PromptForSingleSelection()
+}
+
 // Check starts checking paths in the background and returns how many files
 // that is. Each file's outcome arrives as a "result" event, the end as "done".
 func (s *CheckService) Check(paths []string) (int, error) {
@@ -88,6 +99,10 @@ func (s *CheckService) Check(paths []string) (int, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
+	s.checked = map[string]bool{}
+	for _, f := range files {
+		s.checked[f] = true
+	}
 
 	app := application.Get()
 	go func() {

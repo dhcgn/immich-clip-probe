@@ -16,6 +16,13 @@ export interface Config {
      * Magick is the ImageMagick binary: empty finds it, "off" never uses it.
      */
     "magick": string;
+
+    /**
+     * Optional, desktop only: where to fetch Immich thumbnails of the matches.
+     * The key needs nothing beyond the asset.view permission.
+     */
+    "immichUrl": string;
+    "immichApiKey": string;
 }
 
 /**

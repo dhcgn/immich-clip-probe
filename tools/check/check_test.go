@@ -303,13 +303,13 @@ func TestConfigPrecedence(t *testing.T) {
 	}
 
 	saved := filepath.Join(t.TempDir(), "new", "config.yaml")
-	if err := Save(saved, Config{Server: "s", Token: "t", MaxDistance: 0.02, Limit: 1, Workers: 2, Magick: "off"}); err != nil {
+	if err := Save(saved, Config{Server: "s", Token: "t", MaxDistance: 0.02, Limit: 1, Workers: 2, Magick: "off", ImmichURL: "https://immich", ImmichKey: "k"}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CLIP_CHECK_LIMIT", "")
 	t.Setenv("CLIP_CHECK_TOKEN", "")
 	v, _ = Load(saved)
-	if c, _ := Decode(v); c.MaxDistance != 0.02 || c.Magick != "off" || c.Token != "t" {
+	if c, _ := Decode(v); c.MaxDistance != 0.02 || c.Magick != "off" || c.Token != "t" || c.ImmichURL != "https://immich" || c.ImmichKey != "k" {
 		t.Errorf("round trip = %+v", c)
 	}
 }

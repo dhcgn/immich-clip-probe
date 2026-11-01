@@ -22,16 +22,22 @@ type Config struct {
 	Workers     int     `mapstructure:"workers" json:"workers"`
 	// Magick is the ImageMagick binary: empty finds it, "off" never uses it.
 	Magick string `mapstructure:"magick" json:"magick"`
+	// Optional, desktop only: where to fetch Immich thumbnails of the matches.
+	// The key needs nothing beyond the asset.view permission.
+	ImmichURL string `mapstructure:"immich_url" json:"immichUrl"`
+	ImmichKey string `mapstructure:"immich_api_key" json:"immichApiKey"`
 }
 
 // Every key needs a default, or viper's Unmarshal ignores its env variable.
 var defaults = map[string]any{
-	"server":       "",
-	"token":        "",
-	"max_distance": 0.01, // clip-probe's own MAX_DISTANCE default
-	"limit":        1,
-	"workers":      4,
-	"magick":       "",
+	"server":         "",
+	"token":          "",
+	"max_distance":   0.01, // clip-probe's own MAX_DISTANCE default
+	"limit":          1,
+	"workers":        4,
+	"magick":         "",
+	"immich_url":     "",
+	"immich_api_key": "",
 }
 
 // DefaultPath is <UserConfigDir>/clip-check/config.yaml.
@@ -84,6 +90,8 @@ func Save(file string, c Config) error {
 	v.Set("limit", c.Limit)
 	v.Set("workers", c.Workers)
 	v.Set("magick", c.Magick)
+	v.Set("immich_url", c.ImmichURL)
+	v.Set("immich_api_key", c.ImmichKey)
 	return v.WriteConfigAs(file)
 }
 
