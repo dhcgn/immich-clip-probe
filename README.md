@@ -1,5 +1,7 @@
 # immich-clip-probe
 
+<img src="brand/logo.svg" width="128" alt="immich-clip-probe logo">
+
 [![build](https://github.com/dhcgn/immich-clip-probe/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/dhcgn/immich-clip-probe/actions/workflows/release.yml)
 [![tools](https://github.com/dhcgn/immich-clip-probe/actions/workflows/tools.yml/badge.svg?branch=main)](https://github.com/dhcgn/immich-clip-probe/actions/workflows/tools.yml)
 [![server release](https://img.shields.io/github/v/release/dhcgn/immich-clip-probe?filter=v*&label=server)](https://github.com/dhcgn/immich-clip-probe/releases/latest)

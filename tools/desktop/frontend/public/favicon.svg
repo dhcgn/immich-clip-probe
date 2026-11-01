@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#9333ea"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c7d2fe"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <clipPath id="glass">
+      <circle cx="432" cy="432" r="234"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#tile)"/>
+  <g fill="#fff">
+    <path d="M812 120 Q812 212 904 212 Q812 212 812 304 Q812 212 720 212 Q812 212 812 120 Z"/>
+    <path d="M906 292 Q906 336 950 336 Q906 336 906 380 Q906 336 862 336 Q906 336 906 292 Z" opacity="0.7"/>
+  </g>
+  <g clip-path="url(#glass)">
+    <rect x="160" y="160" width="560" height="560" fill="url(#sky)"/>
+    <circle cx="540" cy="332" r="58" fill="#fbbf24"/>
+    <path d="M300 720 L566 404 L832 720 Z" fill="#0f766e"/>
+    <path d="M90 720 L356 452 L622 720 Z" fill="#14b8a6"/>
+  </g>
+  <circle cx="432" cy="432" r="264" fill="none" stroke="#fff" stroke-width="64"/>
+  <path d="M640 640 L824 824" stroke="#fff" stroke-width="112" stroke-linecap="round"/>
+</svg>

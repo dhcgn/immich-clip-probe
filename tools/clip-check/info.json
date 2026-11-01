@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.0.1"
+	},
+	"info": {
+		"0409": {
+			"ProductVersion": "0.0.1",
+			"CompanyName": "dhcgn",
+			"FileDescription": "clip-check",
+			"LegalCopyright": "(c) 2026 dhcgn",
+			"ProductName": "clip-check",
+			"Comments": "https://github.com/dhcgn/immich-clip-probe"
+		}
+	}
+}
