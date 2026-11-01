@@ -35,7 +35,7 @@ func main() {
 	})
 
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:          "Clip Check",
+		Title:          "Clip Check " + version,
 		Width:          1100,
 		Height:         720,
 		EnableFileDrop: true,

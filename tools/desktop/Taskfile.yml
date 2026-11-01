@@ -9,6 +9,12 @@ vars:
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
   # tasks below dispatch to the matching platform Taskfile via this variable.
   GOOS: '{{.GOOS | default OS}}'
+  # Release tag (tools/v0.2.0) without the prefix. CI passes VERSION explicitly
+  # (already stripped); local builds read it from git (--always falls back to
+  # the commit hash when no tag matches).
+  GIT_VERSION:
+    sh: v=$(git describe --tags --match "tools/v*" --always) || v=dev; echo "${v#tools/}"
+  VERSION: '{{.VERSION | default .GIT_VERSION}}'
 
 includes:
   common: ./build/Taskfile.yml

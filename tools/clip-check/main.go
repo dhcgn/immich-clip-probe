@@ -45,6 +45,10 @@ func main() {
 			Name:   "health",
 			Usage:  "show the server's state and whether ImageMagick was found",
 			Action: health,
+		}, {
+			Name:   "version",
+			Usage:  "print the clip-check version",
+			Action: printVersion,
 		}},
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -144,6 +148,12 @@ func describe(m check.Match) string {
 		s += " " + m.Links.Web
 	}
 	return s
+}
+
+func printVersion(_ context.Context, cmd *cli.Command) error {
+	root := cmd.Root()
+	fmt.Fprintf(root.Writer, "%s %s\n", root.Name, root.Version)
+	return nil
 }
 
 func health(ctx context.Context, cmd *cli.Command) error {
