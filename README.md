@@ -438,7 +438,8 @@ returning nonsense neighbours.
 
 ## Recipes
 
-Scan a folder, print what already looks uploaded:
+Scan a folder, print what already looks uploaded (or use
+[`clip-check`](#tools-clip-check), which also handles HEIC and RAW):
 
 ```bash
 for f in *.jpg; do d=$(curl -sS -H "x-api-key: $CLIP_PROBE_TOKEN" -F "file=@$f" https://clip-probe.home.example/v1/similar); [ "$(jq -r .duplicate <<<"$d")" = true ] && echo "DUP $f -> $(jq -r '.matches[0].originalFileName' <<<"$d")"; done
@@ -458,6 +459,79 @@ Rough bands on a typical library — **measure your own**, these are not univers
 | `0.005 – 0.02` | same scene, adjacent frame or a light edit |
 | `0.02 – 0.10` | same subject or location, different photo |
 | `> 0.10` | merely similar-looking |
+
+## Tools: clip-check
+
+Two small clients for this service: the **`clip-check`** CLI and the **Clip
+Check** desktop app (Windows, Linux). Give either a file, several files or a
+folder, and every image gets its nearest Immich asset and the distance to it.
+
+```console
+$ clip-check ~/Pictures/2019
+MATCH 0.0042  2019/IMG_1234.jpg → IMG_1234.HEIC 2019-06-25 https://immich.home.example/photos/8f2c…
+NO    0.1873  2019/IMG_9999.jpg → IMG_0001.jpg 2017-03-02 https://immich.home.example/photos/1a7e…
+SKIP          2019/IMG_5524.heic  (needs ImageMagick to decode .heic)
+3 files: 1 match, 1 no match, 1 skipped, 0 errors
+```
+
+The desktop app does the same with **Add files**, **Add folder** or a drop onto
+the window, shows the results as a table with an **Open in Immich** link per row,
+and has a settings panel.
+
+**Install.** Binaries are on the [releases page](https://github.com/dhcgn/immich-clip-probe/releases)
+under `tools/v*` tags: `clip-check-<os>-<arch>` for Windows, Linux and macOS,
+and `clip-check-desktop-windows-amd64.exe` / `clip-check-desktop-linux-amd64`.
+The Linux desktop binary needs GTK 4 and WebKitGTK 6.0 (Debian/Ubuntu:
+`libgtk-4-1 libwebkitgtk-6.0-4`). Or build the CLI yourself:
+
+```bash
+go install github.com/dhcgn/immich-clip-probe/tools/clip-check@latest
+```
+
+**Configure.** Both tools read the same file, `clip-check/config.yaml` in the
+user config folder (`%AppData%` on Windows, `~/.config` on Linux,
+`~/Library/Application Support` on macOS); the desktop's settings panel writes it.
+
+```yaml
+server: https://clip-probe.home.example
+token: <API_TOKEN>
+max_distance: 0.01 # the nearest asset counts as a match at or below this
+limit: 1           # nearest assets listed per file
+workers: 4         # files checked in parallel
+magick: ""         # ImageMagick binary; empty finds it, "off" never uses it
+```
+
+Every key also works as an environment variable (`CLIP_CHECK_TOKEN`,
+`CLIP_CHECK_MAX_DISTANCE`, …) and as a CLI flag (`--token`, `--max-distance`, …).
+A flag beats the environment, which beats the file. `clip-check health` shows
+the server's state and whether ImageMagick was found. `--json` prints one
+result per line. The exit code is 1 if any file failed.
+
+**Install ImageMagick too.** When it is found (on `PATH`, or in `Program Files`
+on Windows), every image is rendered locally the way Immich renders the preview
+it embeds, and only that rendering, a few hundred KB, is uploaded
+([ARCHITECTURE.md §6](ARCHITECTURE.md#6-preprocessing-parity)). Without it,
+JPEG, PNG, GIF, WebP and TIFF go up as they are and are normalized by the
+service. HEIC, RAW (DNG, CR2, NEF, …), AVIF and JXL are skipped.
+
+On a live library, with 70 originals checked against their own assets:
+- ImageMagick came closer for 28 of 36 JPEGs.
+- It was the only way to check the 15 HEIC, 11 RAW and 7 JXL files at all.
+
+The tools always ask for the nearest matches with no cut-off, and decide
+"match" against `max_distance` locally. So a distance just past the threshold is
+still shown, and changing the threshold needs no new upload.
+
+Folders are walked recursively for Immich's image types, skipping dotfiles and
+dot-folders. Videos are not checked, because Immich embeds a frame of a video,
+not the file.
+
+**Release** the tools with their own tag. The `tools` workflow builds every
+binary and publishes the GitHub Release, independently of the server's `v*` tags:
+
+```bash
+git tag -a tools/v0.1.0 -m "tools/v0.1.0" && git push origin tools/v0.1.0
+```
 
 ## Image tags and releases
 

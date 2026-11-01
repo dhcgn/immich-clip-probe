@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Clip Check
+Comment=Check whether local images are already in Immich
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/clip-check-desktop %u
+Terminal=false
+Type=Application
+Icon=clip-check-desktop
+Categories=Utility;
+StartupWMClass=clip-check-desktop
+
+ 

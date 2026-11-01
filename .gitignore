@@ -1,7 +1,11 @@
-immich-clip-probe
-immich-clip-probe.exe
-clip-probe
-clip-probe.exe
+# Binaries, anchored: frontend bindings live under .../immich-clip-probe/ and
+# the CLI's source under tools/clip-check/.
+/immich-clip-probe
+/immich-clip-probe.exe
+/clip-probe
+/clip-probe.exe
+/clip-check
+/clip-check.exe
 apm_modules/
 *.jpg
 *.jpeg
