@@ -110,6 +110,8 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0
 
       - run: task build VERSION="${VERSION#tools/}"
+      # After the build: the package embeds frontend/dist.
+      - run: go test ./...
 
       # The build regenerates the bindings; a diff means the committed ones are stale.
       - name: Check the committed bindings and the frontend

@@ -65,13 +65,7 @@ func (s *CheckService) assetThumb(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, strings.TrimRight(cfg.ImmichURL, "/")+"/api/assets/"+id+"/thumbnail", nil)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	req.Header.Set("x-api-key", cfg.ImmichKey)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := immichGet(r.Context(), cfg, "assets/"+id+"/thumbnail")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

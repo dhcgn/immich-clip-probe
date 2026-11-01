@@ -7,5 +7,6 @@ export {
 };
 
 export type {
+    ImmichInfo,
     ServerInfo
 } from "./models.js";
