@@ -35,7 +35,7 @@ export function Check(paths: string[] | null): $CancellablePromise<number> {
  * ExportIDs writes one asset ID per line to a file the user picks, in the
  * shape immich-admin-cli's --ids-file expects.
  */
-export function ExportIDs(ids: string[]): $CancellablePromise<string> {
+export function ExportIDs(ids: string[] | null): $CancellablePromise<string> {
     return $Call.ByID(498743047, ids);
 }
 
