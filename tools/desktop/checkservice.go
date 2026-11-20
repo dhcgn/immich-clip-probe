@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,3 +144,16 @@ func (s *CheckService) Cancel() {
 // OpenURL opens an Immich link in the system browser, where the user is
 // signed in; the webview is not.
 func (s *CheckService) OpenURL(url string) error { return application.Get().Browser.OpenURL(url) }
+
+// ExportIDs writes one asset ID per line to a file the user picks, in the
+// shape immich-admin-cli's --ids-file expects.
+func (s *CheckService) ExportIDs(ids []string) (string, error) {
+	path, err := application.Get().Dialog.SaveFile().
+		SetFilename("immich-ids.txt").
+		AddFilter("Text files", "*.txt").
+		PromptForSingleSelection()
+	if path == "" || err != nil {
+		return "", err
+	}
+	return path, os.WriteFile(path, []byte(strings.Join(ids, "\n")+"\n"), 0o644)
+}

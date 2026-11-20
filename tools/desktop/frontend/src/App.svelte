@@ -27,6 +27,11 @@
   // changed how embeddings are computed; see the README's Limitations.
   let nearMiss = $derived(results.some((r) => r.status === Status.StatusNoMatch && r.distance != null && r.distance < 0.06));
 
+  let nearestLinks = $derived(results.map((r) => nearest(r)?.links?.web).filter((v): v is string => !!v));
+  let matchResults = $derived(results.filter((r) => r.status === Status.StatusMatch));
+  let matchLinks = $derived(matchResults.map((r) => nearest(r)?.links?.web).filter((v): v is string => !!v));
+  let matchIds = $derived([...new Set(matchResults.map((r) => nearest(r)?.assetId).filter((v): v is string => !!v))]);
+
   // The status bar: green works, red is broken, grey is not set up (or still checking).
   type Light = 'ok' | 'bad' | 'off';
   let lights = $derived.by((): [string, Light, string][] => {
@@ -110,6 +115,28 @@
     return r.matches?.[0] ?? null;
   }
 
+  async function copyLinks(links: string[]) {
+    if (!links.length) {
+      message = 'No links to copy.';
+      return;
+    }
+    await navigator.clipboard.writeText(links.join('\n'));
+    message = `Copied ${links.length} link${links.length === 1 ? '' : 's'}.`;
+  }
+
+  async function exportIds() {
+    if (!matchIds.length) {
+      message = 'No matches to export.';
+      return;
+    }
+    try {
+      const path = await CheckService.ExportIDs(matchIds);
+      if (path) message = `Saved ${matchIds.length} asset ID${matchIds.length === 1 ? '' : 's'} to ${path}`;
+    } catch (e) {
+      message = String(e);
+    }
+  }
+
   function name(path: string) {
     return path.split(/[\\/]/).pop();
   }
@@ -188,6 +215,16 @@
         <span class={counts[status] ? status : 'muted'}>{counts[status] ?? 0} {text}</span>
       {/each}
     </p>
+    <div class="export-actions">
+      <button class="link" onclick={() => copyLinks(nearestLinks)} disabled={!nearestLinks.length}>Copy nearest links</button>
+      <button class="link" onclick={() => copyLinks(matchLinks)} disabled={!matchLinks.length}>Copy match links</button>
+      <button class="link" onclick={exportIds} disabled={!matchIds.length}>Export ID list for immich-admin-cli…</button>
+      <button
+        class="link"
+        onclick={() => CheckService.OpenURL('https://github.com/dhcgn/immich-admin-cli')}
+        title="immich-admin-cli on GitHub">immich-admin-cli ↗</button
+      >
+    </div>
     {#if nearMiss}
       <p class="note">
         Close, but over the threshold? Assets added to Immich before an upgrade to <strong>Immich 3.3.0</strong>
@@ -370,6 +407,13 @@
   .summary {
     display: flex;
     gap: 1.25rem;
+  }
+  .export-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
   }
   .note {
     padding: 0.6rem 0.9rem;
